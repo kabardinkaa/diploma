@@ -1,0 +1,48 @@
+# LiteLLM proxy config для дипломного проекта
+# Назначение: показать, как можно вынести работу с LLM-провайдерами
+# в отдельный Gateway-слой с fallback chain.
+
+model_list:
+  - model_name: support-assistant-primary
+    litellm_params:
+      model: openrouter/openai/gpt-4o-mini
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 30
+
+  - model_name: support-assistant-fallback
+    litellm_params:
+      model: anthropic/claude-3-haiku-20240307
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 30
+
+  - model_name: support-assistant-local
+    litellm_params:
+      model: ollama/qwen2.5:7b
+      api_base: http://localhost:11434
+      timeout: 60
+
+router_settings:
+  # Если primary-провайдер недоступен, LiteLLM попробует fallback-модели.
+  fallbacks:
+    - support-assistant-primary:
+        - support-assistant-fallback
+        - support-assistant-local
+
+  # Количество повторных попыток на уровне gateway.
+  num_retries: 2
+
+  # Таймаут на один запрос.
+  timeout: 30
+
+  # Сохраняем порядок fallback chain.
+  routing_strategy: simple-shuffle
+
+litellm_settings:
+  # Включаем подробные логи для учебного запуска.
+  set_verbose: true
+
+  # Не логируем персональные данные и содержимое сообщений в production-режиме.
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
