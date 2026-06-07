@@ -224,3 +224,140 @@ final_without_tool
 - возвращать результат инструмента обратно в модель;
 - логировать полный цикл работы;
 - обрабатывать сценарии с tool, без tool и с неоднозначным запросом.
+
+## Домашнее задание 3.3 — Асинхронная обработка запросов к ИИ
+
+В рамках домашнего задания синхронный LLM-клиент был дополнен асинхронной реализацией.
+
+### Что реализовано
+
+* Добавлен класс `AsyncLLMClient` в файле `app/llm/async_client.py`.
+* Используется `AsyncOpenAI`, а не синхронный `OpenAI`.
+* Реализован метод `complete(prompt)` для одного асинхронного запроса.
+* Реализован метод `batch_chat(prompts)` через `asyncio.gather(..., return_exceptions=True)`.
+* Ограничение конкурентности сделано через `asyncio.Semaphore`.
+* `Semaphore` хранится как атрибут экземпляра `self._sem`.
+* Реализован метод `stream_chat(prompt)` как async-генератор.
+* Добавлен FastAPI endpoint `POST /chat/stream`, который отдаёт ответ через SSE.
+* Добавлен скрипт `scripts/benchmark.py` для сравнения sync и async режимов.
+* Результаты бенчмарка сохраняются в `scripts/benchmark_results.md`.
+
+### Установка зависимостей
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### Настройка `.env`
+
+Для OpenRouter:
+
+```env
+OPENROUTER_API_KEY=your_key_here
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_MODEL=openrouter/free
+```
+
+Для OpenAI:
+
+```env
+OPENAI_API_KEY=your_key_here
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+### Запуск FastAPI
+
+```powershell
+uvicorn app.api:app --reload
+```
+
+Проверка health-check:
+
+```text
+http://127.0.0.1:8000/health
+```
+
+Swagger UI:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+### Проверка обычного chat endpoint
+
+```powershell
+$body = @{
+  prompt = "Что такое event loop? Ответь одним коротким абзацем."
+} | ConvertTo-Json -Compress
+
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/chat" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+### Проверка streaming через SSE
+
+```powershell
+'{"prompt":"Кратко объясни, зачем нужен async для LLM-запросов."}' | Set-Content request.json -Encoding UTF8
+
+curl.exe -N -X POST "http://127.0.0.1:8000/chat/stream" -H "Content-Type: application/json" --data-binary "@request.json"
+```
+
+В ответ приходят SSE-события:
+
+```text
+event: token
+data: Async позволяет...
+
+event: token
+data: отправлять несколько LLM-запросов...
+
+event: done
+data: [DONE]
+```
+
+### Бенчмарк sync vs async
+
+Для учебного прогона использовалось 5 промптов и модель `openrouter/free`.
+
+Команда запуска:
+
+```powershell
+$env:BENCHMARK_PROMPT_COUNT="5"
+python scripts\benchmark.py
+```
+
+Результат:
+
+| Режим            | Concurrency / Semaphore | Кол-во запросов | Успешно | Ошибки | Время, сек |
+| ---------------- | ----------------------: | --------------: | ------: | -----: | ---------: |
+| sync sequential  |                       1 |               5 |       5 |      0 |      66.98 |
+| async batch_chat |                       1 |               5 |       5 |      0 |      70.79 |
+| async batch_chat |                       5 |               5 |       4 |      1 |      19.26 |
+| async batch_chat |                      10 |               5 |       5 |      0 |      20.65 |
+
+### Вывод по бенчмарку
+
+Асинхронная обработка показала ускорение относительно последовательного sync-режима. Лучший стабильный результат в этом прогоне показал режим `concurrency=10`: все 5 запросов завершились успешно, а общее время составило 20.65 секунды против 66.98 секунды в sync-режиме.
+
+Режим `concurrency=5` был немного быстрее по времени, но один запрос получил ошибку `429 Rate limit exceeded` от бесплатного провайдера OpenRouter. Это показывает, что внешний rate limit провайдера влияет на результаты бенчмарка.
+
+При этом `batch_chat` не уронил весь батч: ошибка была возвращена как отдельный результат благодаря `asyncio.gather(..., return_exceptions=True)`. Это подтверждает корректную обработку частичных ошибок.
+
+Для учебного проекта выбран лимит `concurrency=10` как лучший стабильный результат конкретного прогона. В production лимит конкурентности нужно выбирать с учётом реальных rate limits провайдера по формуле:
+
+```text
+Semaphore = floor(RPM / 60 * 0.8)
+```
+
+### Файлы, добавленные в рамках задания
+
+* `app/llm/async_client.py` — асинхронный LLM-клиент.
+* `app/api.py` — FastAPI endpoints `/chat`, `/chat/stream`, `/health`.
+* `scripts/benchmark.py` — скрипт бенчмарка.
+* `scripts/benchmark_results.md` — сохранённые результаты бенчмарка.
+* `requirements.txt` — обновлённые зависимости.
