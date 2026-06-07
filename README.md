@@ -361,3 +361,207 @@ Semaphore = floor(RPM / 60 * 0.8)
 * `scripts/benchmark.py` — скрипт бенчмарка.
 * `scripts/benchmark_results.md` — сохранённые результаты бенчмарка.
 * `requirements.txt` — обновлённые зависимости.
+
+## Домашнее задание 3.4 — FastAPI-сервис для LLM
+
+В рамках домашнего задания проект был расширен до FastAPI-сервиса с production-подходом к структуре, конфигурации, зависимостям и обработке запросов к LLM.
+
+### Что реализовано
+
+* Создана структура проекта:
+
+  * `app/main.py`
+  * `app/core/config.py`
+  * `app/core/exceptions.py`
+  * `app/deps/providers.py`
+  * `app/routers/chat.py`
+  * `app/routers/models.py`
+  * `app/routers/health.py`
+  * `app/services/llm.py`
+  * `app/schemas/chat.py`
+  * `app/schemas/models.py`
+* Реализован запуск сервиса через `uvicorn app.main:app --reload`.
+* Добавлен конфиг через `pydantic-settings`.
+* API-ключи хранятся через `SecretStr`, реальные ключи не добавляются в git.
+* Добавлен `lifespan` для инициализации и закрытия `AsyncOpenAI`.
+* Добавлена Dependency Injection через `Annotated[..., Depends(...)]`.
+* Реализован сервисный слой `LLMService`.
+* Добавлены endpoints:
+
+  * `GET /health`
+  * `GET /models`
+  * `POST /chat`
+  * `POST /chat/stream`
+  * `POST /chat/batch`
+* Добавлен кеш ответов для `POST /chat`.
+* Для локального MVP используется in-memory cache, чтобы сервис работал без обязательного запуска Redis.
+* Добавлен streaming через `StreamingResponse` и формат SSE `data: ...\n\n`.
+* В конце streaming-ответа отправляется `data: [DONE]`.
+* Добавлен middleware для `request_id`, latency и логирования запроса.
+* Добавлен CORS middleware.
+* Добавлены обработчики ошибок:
+
+  * доменные LLM-ошибки;
+  * ошибки валидации `RequestValidationError`.
+
+### Запуск проекта
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+### Проверка health endpoint
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/health"
+```
+
+Ожидаемый ответ:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### Проверка models endpoint
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/models"
+```
+
+Endpoint возвращает список доступных моделей и их параметры.
+
+### Проверка chat endpoint
+
+```powershell
+$body = @{
+  messages = @(
+    @{
+      role = "system"
+      content = "Отвечай строго на русском языке. Одним коротким предложением."
+    },
+    @{
+      role = "user"
+      content = "Что такое FastAPI? Ответь одной фразой."
+    }
+  )
+  temperature = 0
+  max_tokens = 80
+} | ConvertTo-Json -Depth 5 -Compress
+
+$response1 = Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/chat" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $body
+
+$response1 | Select-Object model, finish_reason, cached, usage
+```
+
+Повторный такой же запрос возвращает `cached: true`.
+
+### Проверка streaming endpoint
+
+```powershell
+@'
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "Отвечай строго на русском языке. Коротко."
+    },
+    {
+      "role": "user",
+      "content": "Считай до пяти."
+    }
+  ],
+  "temperature": 0,
+  "max_tokens": 80
+}
+'@ | Set-Content stream_request.json -Encoding UTF8
+
+curl.exe -N -X POST "http://127.0.0.1:8000/chat/stream" -H "Content-Type: application/json" --data-binary "@stream_request.json"
+```
+
+В ответе приходят SSE-события:
+
+```text
+data: 1
+
+data: 2
+
+data: 3
+
+data: {"usage":{"prompt_tokens":89,"completion_tokens":36,"total_tokens":125}}
+
+data: [DONE]
+```
+
+### Проверка batch endpoint
+
+```powershell
+$batchBody = @{
+  requests = @(
+    @{
+      messages = @(
+        @{
+          role = "system"
+          content = "Отвечай строго одной короткой фразой на русском."
+        },
+        @{
+          role = "user"
+          content = "Что такое FastAPI?"
+        }
+      )
+      temperature = 0
+      max_tokens = 40
+    },
+    @{
+      messages = @(
+        @{
+          role = "system"
+          content = "Отвечай строго одной короткой фразой на русском."
+        },
+        @{
+          role = "user"
+          content = "Что такое DI?"
+        }
+      )
+      temperature = 0
+      max_tokens = 40
+    }
+  )
+} | ConvertTo-Json -Depth 10 -Compress
+
+$batchResponse = Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/chat/batch" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $batchBody
+
+$batchResponse.results | Select-Object model, usage, finish_reason, cached | ConvertTo-Json -Depth 10
+```
+
+### Swagger
+
+Swagger UI доступен по адресу:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+В Swagger отображаются endpoints:
+
+* `GET /health`
+* `GET /models`
+* `POST /chat`
+* `POST /chat/stream`
+* `POST /chat/batch`
+
+### Итог
+
+В результате выполнения ДЗ получился FastAPI-сервис для LLM, который использует async-клиент, отдельный сервисный слой, DI, lifespan, конфиг через окружение, middleware, кеш, Swagger и streaming endpoint. Эта структура будет использоваться как основа для дальнейшего дипломного проекта.
