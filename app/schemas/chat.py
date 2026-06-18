@@ -9,9 +9,11 @@ class Message(BaseModel):
         description="Роль сообщения в диалоге",
     )
     content: str = Field(
-        ...,
-        min_length=1,
-        description="Текст сообщения",
+    ...,
+    min_length=1,
+    max_length=4000,
+    repr=False,
+    description="Текст сообщения. Не выводится в repr, чтобы случайно не светить PII.",
     )
 
 
