@@ -9,3 +9,7 @@ httpx==0.28.1
 tenacity==9.0.0
 pydantic-settings==2.7.1
 redis==5.2.1
+structlog
+arize-phoenix-otel>=0.16.0
+openinference-instrumentation-openai
+pytest

@@ -1,8 +1,15 @@
 import json
 from typing import Any
-import logging
 import time
 import uuid
+import os
+
+import structlog
+from structlog.contextvars import bind_contextvars, clear_contextvars
+
+from app.observability.logging import setup_logging
+from app.observability.tracing import setup_tracing
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -16,11 +23,9 @@ from app.core.config import get_settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.routers import chat, health, models
 
-logger = logging.getLogger("llm-service")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
+logger = structlog.get_logger("llm-service")
+
 class SafeJSONResponse(JSONResponse):
     """
     JSONResponse с ASCII-safe сериализацией.
@@ -41,6 +46,7 @@ class SafeJSONResponse(JSONResponse):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    setup_tracing()
 
     client_kwargs = {
         "api_key": settings.llm.api_key.get_secret_value(),
@@ -97,8 +103,16 @@ app.add_middleware(
 
 @app.middleware("http")
 async def request_observability_middleware(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    clear_contextvars()
+
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
     request.state.request_id = request_id
+
+    bind_contextvars(
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+    )
 
     started_at = time.perf_counter()
 
@@ -110,32 +124,23 @@ async def request_observability_middleware(request: Request, call_next):
     except Exception:
         status_code = 500
         logger.exception(
-            "request.failed",
-            extra={
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "status": status_code,
-            },
-        )
+    "request.failed",
+    status=status_code,
+    )
         raise
 
     finally:
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
 
         logger.info(
-            "request.completed",
-            extra={
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "status": status_code,
-                "duration_ms": duration_ms,
-            },
+        "request.completed",
+        status=status_code,
+        duration_ms=duration_ms,
         )
 
         if "response" in locals():
             response.headers["X-Request-ID"] = request_id
+        clear_contextvars()
 
 
 @app.exception_handler(LLMError)

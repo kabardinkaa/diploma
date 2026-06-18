@@ -1,6 +1,12 @@
 import asyncio
 import hashlib
 import json
+import time
+
+import structlog
+
+from app.observability.pii import prompt_hash, redact_pii
+
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -11,6 +17,7 @@ from app.core.config import Settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Usage
 
+logger = structlog.get_logger("llm-service")
 
 class LLMService:
     """
@@ -76,12 +83,31 @@ class LLMService:
             return
 
     async def complete(self, req: ChatRequest) -> ChatResponse:
+        started_at = time.perf_counter()
+        raw_prompt = json.dumps(
+            [message.model_dump() for message in req.messages],
+            ensure_ascii=False,
+        )
+
         key = self._cache_key(req)
 
         cached_value = await self._cache_get(key)
         if cached_value is not None:
             cached_response = ChatResponse.model_validate_json(cached_value)
             cached_response.cached = True
+
+            logger.info(
+                "llm_request_completed",
+                model=req.model or self.settings.llm.default_model,
+                input_tokens=None,
+                output_tokens=None,
+                latency_ms=round((time.perf_counter() - started_at) * 1000, 2),
+                finish_reason="cache_hit",
+                prompt_hash=prompt_hash(raw_prompt),
+                prompt_preview=redact_pii(raw_prompt)[:120],
+                cached=True,
+            )
+
             return cached_response
 
         try:
@@ -94,6 +120,21 @@ class LLMService:
 
             chat_response = ChatResponse.from_openai(response, cached=False)
             await self._cache_set(key, chat_response.model_dump_json())
+
+            usage = getattr(response, "usage", None)
+            choice = response.choices[0] if response.choices else None
+
+            logger.info(
+                "llm_request_completed",
+                model=getattr(response, "model", req.model or self.settings.llm.default_model),
+                input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
+                output_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+                latency_ms=round((time.perf_counter() - started_at) * 1000, 2),
+                finish_reason=getattr(choice, "finish_reason", None) if choice else None,
+                prompt_hash=prompt_hash(raw_prompt),
+                prompt_preview=redact_pii(raw_prompt)[:120],
+                cached=False,
+            )
 
             return chat_response
 
