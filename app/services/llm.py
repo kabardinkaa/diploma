@@ -16,6 +16,7 @@ from redis.exceptions import RedisError
 from app.core.config import Settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Usage
+from app.security.llm_guard import BLOCKED_RESPONSE, filter_output, is_prompt_attack
 
 logger = structlog.get_logger("llm-service")
 
@@ -88,6 +89,20 @@ class LLMService:
             [message.model_dump() for message in req.messages],
             ensure_ascii=False,
         )
+
+        guard_result = is_prompt_attack(raw_prompt)
+        if not guard_result.allowed:
+            logger.warning(
+                "llm_request_blocked",
+                reason=guard_result.reason,
+                model=req.model or self.settings.llm.default_model,
+            )
+            return ChatResponse(
+                content=BLOCKED_RESPONSE,
+                model=req.model or self.settings.llm.default_model,
+                finish_reason="security_blocked",
+                cached=False,
+            )
 
         key = self._cache_key(req)
 

@@ -1,11 +1,13 @@
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.deps.providers import LLMServiceDep
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Message
 
 router = APIRouter(tags=["chat"])
 
@@ -32,10 +34,31 @@ class BatchChatRequest(BaseModel):
     },
 )
 async def chat(
-    request: ChatRequest,
+    request: Request,
     service: LLMServiceDep,
 ) -> ChatResponse:
-    return await service.complete(request)
+    content_type = request.headers.get("content-type", "")
+
+    if content_type.startswith("text/plain"):
+        prompt = (await request.body()).decode("utf-8", errors="replace").strip()
+        chat_request = ChatRequest(
+            messages=[
+                Message(
+                    role="user",
+                    content=prompt,
+                )
+            ],
+            temperature=0,
+            max_tokens=300,
+        )
+    else:
+        try:
+            payload = await request.json()
+            chat_request = ChatRequest.model_validate(payload)
+        except ValidationError as exc:
+            raise RequestValidationError(exc.errors()) from exc
+
+    return await service.complete(chat_request)
 
 
 @router.post(
