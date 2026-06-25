@@ -1,4 +1,6 @@
 from functools import lru_cache
+from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -69,8 +71,24 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
-    llm: LLMSettings = Field(default_factory=LLMSettings)
+    chat_repository: Literal["json", "postgres"] = Field(
+        default="json",
+        alias="CHAT_REPOSITORY",
+    )
+    chat_storage_dir: Path = Field(
+        default=Path("./var/chats"),
+        alias="CHAT_STORAGE_DIR",
+    )
+    chat_context_strategy: Literal["sliding", "hybrid"] = Field(
+        default="sliding",
+        alias="CHAT_CONTEXT_STRATEGY",
+    )
+    chat_context_window: int = Field(
+        default=10,
+        alias="CHAT_CONTEXT_WINDOW",
+    )
 
+    llm: LLMSettings = Field(default_factory=LLMSettings)
 
 @lru_cache
 def get_settings() -> Settings:

@@ -15,3 +15,4 @@ openinference-instrumentation-openai
 pytest
 pytest-mock
 pytest-asyncio
+aiofiles==25.1.0

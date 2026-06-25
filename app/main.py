@@ -22,6 +22,7 @@ from redis.asyncio import Redis
 from app.core.config import get_settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.routers import chat, health, models
+from app.chat.routes import router as chat_history_router
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = structlog.get_logger("llm-service")
@@ -188,3 +189,4 @@ async def validation_error_handler(_: Request, exc: RequestValidationError) -> J
 app.include_router(health.router)
 app.include_router(models.router)
 app.include_router(chat.router)
+app.include_router(chat_history_router)
