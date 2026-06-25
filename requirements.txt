@@ -16,3 +16,4 @@ pytest
 pytest-mock
 pytest-asyncio
 aiofiles==25.1.0
+aiogram>=3,<4
