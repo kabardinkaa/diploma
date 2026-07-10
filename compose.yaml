@@ -10,11 +10,15 @@ services:
       - .env
     environment:
       APP_ENV: docker
+      CHAT_REPOSITORY: postgres
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/diploma
       REDIS_URL: redis://redis:6379/0
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
-      NO_PROXY: localhost,127.0.0.1,redis,app,phoenix
-      no_proxy: localhost,127.0.0.1,redis,app,phoenix
+      NO_PROXY: localhost,127.0.0.1,redis,app,phoenix,postgres
+      no_proxy: localhost,127.0.0.1,redis,app,phoenix,postgres
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       phoenix:
@@ -31,6 +35,38 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llm-service:v1
+    command: ["python", "-m", "bot"]
+    env_file:
+      - .env
+    environment:
+      BACKEND_URL: http://app:8000
+      NO_PROXY: localhost,127.0.0.1,app
+      no_proxy: localhost,127.0.0.1,app
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: diploma
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d diploma"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   redis:
@@ -56,5 +92,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  pg-data: {}
   redis_data: {}
   phoenix-data: {}

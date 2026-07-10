@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from time import monotonic
 
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
@@ -8,6 +9,15 @@ from aiogram.types import Message
 
 EDIT_INTERVAL_SECONDS = 0.8
 TELEGRAM_MESSAGE_LIMIT = 4096
+
+
+@dataclass
+class StreamResult:
+    text: str
+    message: Message
+
+    def __bool__(self) -> bool:
+        return bool(self.text.strip())
 
 
 async def safe_edit_message(
@@ -45,7 +55,7 @@ async def safe_edit_message(
 async def stream_to_chat(
     message: Message,
     tokens: AsyncIterator[str],
-) -> str:
+) -> StreamResult:
     """
     Показывает поток ответа через редактирование
     обычного сообщения Telegram.
@@ -100,11 +110,11 @@ async def stream_to_chat(
             answer_message,
             "Backend не вернул текст ответа.",
         )
-        return ""
+        return StreamResult(text="", message=answer_message)
 
     await safe_edit_message(
         answer_message,
         buffer,
     )
 
-    return buffer
+    return StreamResult(text=buffer, message=answer_message)

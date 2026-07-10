@@ -21,6 +21,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install -r requirements.txt
 
 COPY app ./app
+COPY bot ./bot
 
 
 FROM python:3.13-slim-bookworm AS runtime

@@ -6,6 +6,7 @@ from aiogram.types import Message, PhotoSize
 
 from bot.handlers.commands import get_owner_external_id
 from bot.handlers.text import send_backend_error
+from bot.keyboards.feedback import feedback_kb
 from bot.services.backend_client import BackendClient
 from bot.services.streaming import stream_to_chat
 
@@ -93,7 +94,11 @@ async def handle_photo(
             mime="image/jpeg",
         )
 
-        await stream_to_chat(message, tokens)
+        result = await stream_to_chat(message, tokens)
+        if result and backend.last_message_id is not None:
+            await result.message.edit_reply_markup(
+                reply_markup=feedback_kb(backend.last_message_id)
+            )
 
     except (
         httpx.HTTPError,
@@ -125,7 +130,11 @@ async def handle_voice(
             mime="audio/ogg",
         )
 
-        await stream_to_chat(message, tokens)
+        result = await stream_to_chat(message, tokens)
+        if result and backend.last_message_id is not None:
+            await result.message.edit_reply_markup(
+                reply_markup=feedback_kb(backend.last_message_id)
+            )
 
     except (
         httpx.HTTPError,
@@ -157,7 +166,11 @@ async def handle_audio(
             mime=message.audio.mime_type or "audio/mpeg",
         )
 
-        await stream_to_chat(message, tokens)
+        result = await stream_to_chat(message, tokens)
+        if result and backend.last_message_id is not None:
+            await result.message.edit_reply_markup(
+                reply_markup=feedback_kb(backend.last_message_id)
+            )
 
     except (
         httpx.HTTPError,
@@ -219,7 +232,11 @@ async def handle_document(
             mime=document.mime_type or mime,
         )
 
-        await stream_to_chat(message, tokens)
+        result = await stream_to_chat(message, tokens)
+        if result and backend.last_message_id is not None:
+            await result.message.edit_reply_markup(
+                reply_markup=feedback_kb(backend.last_message_id)
+            )
 
     except (
         httpx.HTTPError,

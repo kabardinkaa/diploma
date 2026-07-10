@@ -21,3 +21,5 @@ python-multipart
 pypdf
 python-docx
 faster-whisper
+asyncpg==0.30.0
+PyYAML==6.0.2

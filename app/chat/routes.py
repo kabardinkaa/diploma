@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.chat.deps import ChatServiceDep
 from app.chat.domain import Chat, ChatMessage
 from app.chat.media import media_to_part
+from app.chat.service import ModerationBlockedError
 
 
 router = APIRouter(prefix="/chats", tags=["chat-history"])
@@ -25,6 +26,15 @@ class CreateChatOut(BaseModel):
 
 class MessageIn(BaseModel):
     content: str = Field(..., min_length=1)
+
+
+class FeedbackIn(BaseModel):
+    value: str = Field(pattern="^(up|down)$")
+
+
+class FeedbackOut(BaseModel):
+    status: str
+    duplicate: bool = False
 
 
 @router.post("", response_model=CreateChatOut)
@@ -90,6 +100,19 @@ async def send_message(
             "part": media_part,
         }
 
+    try:
+        await service.check_user_content(content)
+    except ModerationBlockedError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "moderation_blocked",
+                "categories": exc.result.categories,
+                "reasons": exc.result.reasons,
+                "blocked_by": exc.result.blocked_by,
+            },
+        ) from exc
+
     async def event_generator():
         try:
             async for chunk in service.send_message(
@@ -108,7 +131,20 @@ async def send_message(
                     + "\n\n"
                 )
 
-            yield 'data: {"type":"done"}\n\n'
+            done_payload = {
+                "type": "done",
+                "message_id": (
+                    str(service.last_assistant_message_id)
+                    if service.last_assistant_message_id
+                    else None
+                ),
+            }
+
+            yield (
+                "data: "
+                + json.dumps(done_payload, ensure_ascii=False)
+                + "\n\n"
+            )
 
         except ValueError as exc:
             payload = {
@@ -122,28 +158,6 @@ async def send_message(
                 + "\n\n"
             )
             yield 'data: {"type":"done"}\n\n'
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
-    async def event_generator():
-        try:
-            async for chunk in service.send_message(
-                chat_id=chat_id,
-                user_content=request.content,
-            ):
-                yield f"data: {chunk}\n\n"
-
-            yield "data: [DONE]\n\n"
-
-        except ValueError as exc:
-            yield f"data: ERROR: {exc}\n\n"
-            yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -168,3 +182,41 @@ async def clear_messages(
     await service.clear_history(chat_id)
 
     return {"status": "ok"}
+
+
+@router.post("/{chat_id}/messages/{message_id}/feedback", response_model=FeedbackOut)
+async def save_feedback(
+    chat_id: UUID,
+    message_id: UUID,
+    request: FeedbackIn,
+    service: ChatServiceDep,
+) -> FeedbackOut:
+    try:
+        feedback = await service.save_feedback(
+            chat_id=chat_id,
+            message_id=message_id,
+            value=request.value,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return FeedbackOut(
+        status="ok",
+        duplicate=feedback is None,
+    )
+
+
+@router.post("/{chat_id}/handoff")
+async def set_handoff(
+    chat_id: UUID,
+    service: ChatServiceDep,
+) -> dict[str, str]:
+    chat = await service.set_handoff_status(
+        chat_id=chat_id,
+        status="paused_for_human",
+    )
+
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    return {"status": chat.handoff_status}

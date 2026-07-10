@@ -1,11 +1,22 @@
 from collections.abc import AsyncIterator
+import hashlib
 from typing import Any
 from uuid import UUID
 
-from app.chat.domain import Chat, ChatMessage
+from app.chat.domain import Chat, ChatMessage, SystemPrompt
 from app.chat.repository import ChatRepository
+from app.moderation import ModerationResult, ModerationService
 from app.schemas.chat import ChatRequest, Message
 from app.services.llm import LLMService
+
+
+MODERATION_SAFE_MESSAGE = "Не могу показать ответ — он мог нарушить правила"
+
+
+class ModerationBlockedError(Exception):
+    def __init__(self, result: ModerationResult) -> None:
+        self.result = result
+        super().__init__("moderation_blocked")
 
 
 FINAL_ANSWER_SYSTEM_PROMPT = (
@@ -24,11 +35,14 @@ class ChatService:
         self,
         repository: ChatRepository,
         llm_service: LLMService,
+        moderation_service: ModerationService | None = None,
         context_window: int = 10,
     ) -> None:
         self.repository = repository
         self.llm_service = llm_service
+        self.moderation_service = moderation_service or ModerationService()
         self.context_window = context_window
+        self.last_assistant_message_id: UUID | None = None
 
     async def create_chat(
         self,
@@ -64,6 +78,63 @@ class ChatService:
     ) -> None:
         await self.repository.soft_delete_messages(chat_id)
 
+    async def check_user_content(self, content: str) -> None:
+        result = await self.moderation_service.check_input(content)
+
+        if not result.allowed:
+            raise ModerationBlockedError(result)
+
+    async def set_handoff_status(
+        self,
+        chat_id: UUID,
+        status: str,
+    ) -> Chat | None:
+        return await self.repository.set_handoff_status(chat_id, status)  # type: ignore[arg-type]
+
+    async def save_feedback(
+        self,
+        chat_id: UUID,
+        message_id: UUID,
+        value: str,
+    ):
+        chat = await self.repository.get_chat(chat_id)
+
+        if chat is None:
+            raise ValueError(f"Chat {chat_id} not found")
+
+        return await self.repository.save_feedback(
+            chat_id=chat_id,
+            message_id=message_id,
+            owner_external_id=chat.owner_external_id,
+            value=value,  # type: ignore[arg-type]
+        )
+
+    async def select_prompt(self, owner_external_id: str) -> SystemPrompt | None:
+        try:
+            prompts = await self.repository.list_active_prompts()
+        except Exception:
+            return None
+
+        if not prompts:
+            return None
+
+        total = sum(prompt.traffic_pct for prompt in prompts)
+        if total != 100:
+            return prompts[0]
+
+        bucket = int(
+            hashlib.sha256(owner_external_id.encode("utf-8")).hexdigest(),
+            16,
+        ) % 100
+        cursor = 0
+
+        for prompt in prompts:
+            cursor += prompt.traffic_pct
+            if bucket < cursor:
+                return prompt
+
+        return prompts[0]
+
     async def send_message(
         self,
         chat_id: UUID,
@@ -74,6 +145,26 @@ class ChatService:
 
         if chat is None:
             raise ValueError(f"Chat {chat_id} not found")
+
+        if chat.handoff_status == "paused_for_human":
+            user_message = ChatMessage(
+                chat_id=chat_id,
+                role="user",
+                content=user_content,
+                media_refs=media_refs,
+            )
+            await self.repository.append_message(chat_id, user_message)
+
+            assistant_message = ChatMessage(
+                chat_id=chat_id,
+                role="assistant",
+                content="Диалог ожидает оператора. Мы вернемся с ответом позже.",
+            )
+            await self.repository.append_message(chat_id, assistant_message)
+            self.last_assistant_message_id = assistant_message.id
+
+            yield assistant_message.content
+            return
 
         media_part = (media_refs or {}).get("part")
         stored_content = user_content
@@ -98,6 +189,8 @@ class ChatService:
 
             media_refs = None
 
+        await self.check_user_content(stored_content)
+
         user_message = ChatMessage(
             chat_id=chat_id,
             role="user",
@@ -121,6 +214,16 @@ class ChatService:
                 content=FINAL_ANSWER_SYSTEM_PROMPT,
             )
         ]
+
+        selected_prompt = await self.select_prompt(chat.owner_external_id)
+
+        if selected_prompt is not None:
+            llm_messages.append(
+                Message(
+                    role="system",
+                    content=selected_prompt.body,
+                )
+            )
 
         if chat.system_prompt:
             llm_messages.append(
@@ -177,7 +280,6 @@ class ChatService:
             async for delta in self.llm_service.stream(request):
                 if delta.content:
                     assistant_chunks.append(delta.content)
-                    yield delta.content
 
         finally:
             assistant_content = "".join(
@@ -185,13 +287,25 @@ class ChatService:
             ).strip()
 
             if assistant_content:
+                output_result = await self.moderation_service.check_output(
+                    assistant_content
+                )
+
+                if not output_result.allowed:
+                    assistant_content = MODERATION_SAFE_MESSAGE
+
                 assistant_message = ChatMessage(
                     chat_id=chat_id,
                     role="assistant",
                     content=assistant_content,
+                    prompt_id=selected_prompt.id if selected_prompt else None,
                 )
 
                 await self.repository.append_message(
                     chat_id,
                     assistant_message,
                 )
+
+                self.last_assistant_message_id = assistant_message.id
+
+                yield assistant_content

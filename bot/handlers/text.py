@@ -3,6 +3,7 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from bot.handlers.commands import get_owner_external_id
+from bot.keyboards.feedback import feedback_kb
 from bot.services.backend_client import BackendClient
 from bot.services.streaming import stream_to_chat
 
@@ -14,7 +15,10 @@ async def send_backend_error(
     message: Message,
     error: Exception,
 ) -> None:
-    if isinstance(error, httpx.ConnectError):
+    if isinstance(error, RuntimeError) and str(error) == "moderation_blocked":
+        text = "Запрос нарушает правила. Попробуйте переформулировать."
+
+    elif isinstance(error, httpx.ConnectError):
         text = "Сервис сейчас недоступен. Попробуйте позже."
 
     elif isinstance(error, httpx.ReadTimeout):
@@ -59,6 +63,11 @@ async def handle_text_message(
             message=message,
             tokens=tokens,
         )
+
+        if result and backend.last_message_id is not None:
+            await result.message.edit_reply_markup(
+                reply_markup=feedback_kb(backend.last_message_id)
+            )
 
         if not result:
             await message.answer(

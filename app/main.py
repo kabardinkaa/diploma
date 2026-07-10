@@ -21,6 +21,7 @@ from redis.asyncio import Redis
 
 from app.core.config import get_settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
+from app.admin.routes import router as admin_router
 from app.routers import chat, health, models
 from app.chat.routes import router as chat_history_router
 
@@ -189,4 +190,5 @@ async def validation_error_handler(_: Request, exc: RequestValidationError) -> J
 app.include_router(health.router)
 app.include_router(models.router)
 app.include_router(chat.router)
+app.include_router(admin_router)
 app.include_router(chat_history_router)

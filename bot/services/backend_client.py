@@ -12,10 +12,15 @@ class BackendClient:
         self,
         http_client: httpx.AsyncClient,
         base_url: str,
+        admin_token: str = "",
+        internal_token: str = "",
     ) -> None:
         self.http_client = http_client
         self.base_url = base_url.rstrip("/")
+        self.admin_token = admin_token
+        self.internal_token = internal_token
         self._chat_cache: dict[tuple[str, str], UUID] = {}
+        self.last_message_id: UUID | None = None
 
     async def get_or_create_chat(
         self,
@@ -75,6 +80,9 @@ class BackendClient:
                 pool=10.0,
             ),
         ) as response:
+            if response.status_code == 403:
+                raise RuntimeError("moderation_blocked")
+
             response.raise_for_status()
 
             async for line in response.aiter_lines():
@@ -96,6 +104,8 @@ class BackendClient:
                         yield delta
 
                 elif event_type == "done":
+                    message_id = payload.get("message_id")
+                    self.last_message_id = UUID(message_id) if message_id else None
                     return
 
                 elif event_type == "error":
@@ -108,6 +118,85 @@ class BackendClient:
     async def clear_messages(self, chat_id: UUID) -> None:
         response = await self.http_client.delete(
             f"{self.base_url}/chats/{chat_id}/messages",
+        )
+        response.raise_for_status()
+
+    async def send_feedback(
+        self,
+        chat_id: UUID,
+        message_id: UUID,
+        value: str,
+    ) -> None:
+        response = await self.http_client.post(
+            f"{self.base_url}/chats/{chat_id}/messages/{message_id}/feedback",
+            json={"value": value},
+        )
+        response.raise_for_status()
+
+    async def set_handoff(self, chat_id: UUID) -> None:
+        response = await self.http_client.post(
+            f"{self.base_url}/chats/{chat_id}/handoff",
+        )
+        response.raise_for_status()
+
+    def _admin_headers(self) -> dict[str, str]:
+        return {"X-Admin-Token": self.admin_token}
+
+    def _internal_headers(self) -> dict[str, str]:
+        return {"X-Internal-Token": self.internal_token}
+
+    async def admin_stats(self) -> dict:
+        response = await self.http_client.get(
+            f"{self.base_url}/chats/admin/stats",
+            headers=self._admin_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def admin_users(self, limit: int = 10) -> list[dict]:
+        response = await self.http_client.get(
+            f"{self.base_url}/chats/admin/users",
+            params={"limit": limit},
+            headers=self._admin_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def create_broadcast(self, message: str, interface_filter: str = "telegram") -> dict:
+        response = await self.http_client.post(
+            f"{self.base_url}/chats/admin/broadcast",
+            json={
+                "message": message,
+                "interface_filter": interface_filter,
+            },
+            headers=self._admin_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def pending_broadcasts(self) -> list[dict]:
+        response = await self.http_client.get(
+            f"{self.base_url}/chats/admin/internal/broadcasts/pending",
+            headers=self._internal_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def update_broadcast_result(
+        self,
+        task_id: str,
+        sent: int,
+        failed: int,
+        status: str = "done",
+    ) -> None:
+        response = await self.http_client.post(
+            f"{self.base_url}/chats/admin/internal/broadcasts/{task_id}/result",
+            json={
+                "sent": sent,
+                "failed": failed,
+                "status": status,
+            },
+            headers=self._internal_headers(),
         )
         response.raise_for_status()
 

@@ -21,6 +21,8 @@ class BotSettings(BaseSettings):
 
     bot_token: str = Field(default="", alias="BOT_TOKEN")
     backend_url: str = Field(default="http://127.0.0.1:8000", alias="BACKEND_URL")
+    admin_token: str = Field(default="", alias="ADMIN_TOKEN")
+    internal_token: str = Field(default="", alias="INTERNAL_TOKEN")
     bot_admin_ids: list[int] = Field(default_factory=list, alias="BOT_ADMIN_IDS")
 
     @field_validator("bot_admin_ids", mode="before")
@@ -31,6 +33,9 @@ class BotSettings(BaseSettings):
 
         if isinstance(value, list):
             return [int(item) for item in value]
+
+        if isinstance(value, int):
+            return [value]
 
         if isinstance(value, str):
             value = value.strip()

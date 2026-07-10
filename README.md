@@ -607,3 +607,60 @@ pytest -q
 Ожидаемый результат:
 
 30 passed
+
+## Homework B4.4 Production Operations
+
+### Environment
+
+Copy `.env.example` to `.env` and fill secrets locally. Do not commit `.env`.
+
+Required production-operation settings:
+
+```env
+ADMIN_TOKEN=change-me-admin-token
+INTERNAL_TOKEN=change-me-internal-token
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/diploma
+CHAT_REPOSITORY=json
+BOT_ADMIN_IDS=123456789
+MODERATION_OPENAI_ENABLED=false
+```
+
+`ADMIN_TOKEN` protects `/chats/admin/*`. `INTERNAL_TOKEN` protects internal broadcast worker endpoints. `BOT_ADMIN_IDS` is a comma-separated Telegram user id list.
+
+### Run Locally
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --port 8000
+python -m bot
+```
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Compose starts `app`, `bot`, `postgres`, `redis`, and `phoenix`. Postgres data is persisted in the `pg-data` volume.
+
+### Implemented B4.4 Features
+
+- Backend moderation in `app/moderation` with local keyword/regex rules from `moderation_keywords.yaml`.
+- Admin endpoints under `/chats/admin` protected by `X-Admin-Token`.
+- JSON and Postgres chat repositories selected via `CHAT_REPOSITORY=json|postgres`.
+- Feedback endpoint: `POST /chats/{chat_id}/messages/{message_id}/feedback`.
+- Telegram feedback buttons with callback data `fb:up:<message_id>` and `fb:down:<message_id>`.
+- Telegram admin commands: `/stats`, `/users`, `/broadcast <text>`.
+- Broadcast queue consumed by the bot through `INTERNAL_TOKEN` protected endpoints.
+- Handoff command `/operator` sets `handoff_status=paused_for_human`.
+- System prompt A/B split with deterministic owner-based routing and `prompt_id` saved on assistant messages.
+
+### Checks
+
+```bash
+python -m compileall app bot
+pytest -q
+docker compose config
+```

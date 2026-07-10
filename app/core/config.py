@@ -68,6 +68,10 @@ class Settings(BaseSettings):
 
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     cache_ttl_seconds: int = Field(default=300, alias="CACHE_TTL_SECONDS")
+    database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    admin_token: SecretStr | None = Field(default=None, alias="ADMIN_TOKEN")
+    internal_token: SecretStr | None = Field(default=None, alias="INTERNAL_TOKEN")
+    moderation_openai_enabled: bool = Field(default=False, alias="MODERATION_OPENAI_ENABLED")
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 

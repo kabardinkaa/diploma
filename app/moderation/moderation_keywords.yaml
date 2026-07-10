@@ -1,0 +1,19 @@
+input:
+  banned:
+    - category: self_harm
+      pattern: "\\b(suicide|kill myself|самоубийство|убить себя)\\b"
+      reason: "self-harm intent"
+    - category: credentials
+      pattern: "\\b(password dump|steal password|украсть пароль|слить пароли)\\b"
+      reason: "credential theft"
+    - category: malware
+      pattern: "\\b(malware|ransomware|keylogger|вирус для|кейлоггер)\\b"
+      reason: "malware request"
+output:
+  banned:
+    - category: credentials
+      pattern: "\\b(password dump|stolen password|украденн(ый|ые) парол)\\b"
+      reason: "credential leakage"
+    - category: malware
+      pattern: "\\b(keylogger code|ransomware payload|код кейлоггера)\\b"
+      reason: "malware content"
