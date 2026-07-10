@@ -1,20 +1,37 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"] = Field(
         ...,
-        description="Роль сообщения в диалоге",
+        description="Роль сообщения",
     )
-    content: str = Field(
-    ...,
-    min_length=1,
-    max_length=4000,
-    repr=False,
-    description="Текст сообщения. Не выводится в repr, чтобы случайно не светить PII.",
+
+    content: str | list[dict[str, Any]] = Field(
+        ...,
+        repr=False,
+        description="Текст сообщения или список мультимодальных content-part",
     )
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(
+        cls,
+        value: str | list[dict[str, Any]],
+    ) -> str | list[dict[str, Any]]:
+        if isinstance(value, str):
+            if not value:
+                raise ValueError("content must not be empty")
+
+            if len(value) > 4000:
+                raise ValueError("content must not exceed 4000 characters")
+
+        elif not value:
+            raise ValueError("multimodal content must not be empty")
+
+        return value
 
 
 class Usage(BaseModel):

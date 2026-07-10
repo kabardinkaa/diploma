@@ -18,5 +18,6 @@ class ChatMessage(BaseModel):
     chat_id: UUID
     role: Literal["user", "assistant", "system"]
     content: str
+    media_refs: dict | None = None
     tokens: int | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

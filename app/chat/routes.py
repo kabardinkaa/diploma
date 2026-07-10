@@ -1,11 +1,13 @@
+import json
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.chat.deps import ChatServiceDep
 from app.chat.domain import Chat, ChatMessage
+from app.chat.media import media_to_part
 
 
 router = APIRouter(prefix="/chats", tags=["chat-history"])
@@ -69,9 +71,66 @@ async def list_messages(
 @router.post("/{chat_id}/messages")
 async def send_message(
     chat_id: UUID,
-    request: MessageIn,
     service: ChatServiceDep,
+    content: str = Form(..., min_length=1),
+    media: UploadFile | None = File(None),
 ) -> StreamingResponse:
+    media_refs = None
+
+    if media is not None:
+        media_part = await media_to_part(
+            media,
+            llm_client=service.llm_service.openai,
+        )
+
+        media_refs = {
+            "mime": media.content_type,
+            "size": media.size,
+            "filename": media.filename,
+            "part": media_part,
+        }
+
+    async def event_generator():
+        try:
+            async for chunk in service.send_message(
+                chat_id=chat_id,
+                user_content=content,
+                media_refs=media_refs,
+            ):
+                payload = {
+                    "type": "token",
+                    "delta": chunk,
+                }
+
+                yield (
+                    "data: "
+                    + json.dumps(payload, ensure_ascii=False)
+                    + "\n\n"
+                )
+
+            yield 'data: {"type":"done"}\n\n'
+
+        except ValueError as exc:
+            payload = {
+                "type": "error",
+                "message": str(exc),
+            }
+
+            yield (
+                "data: "
+                + json.dumps(payload, ensure_ascii=False)
+                + "\n\n"
+            )
+            yield 'data: {"type":"done"}\n\n'
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
     async def event_generator():
         try:
             async for chunk in service.send_message(

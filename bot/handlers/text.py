@@ -1,21 +1,39 @@
 import httpx
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message
 
 from bot.handlers.commands import get_owner_external_id
 from bot.services.backend_client import BackendClient
+from bot.services.streaming import stream_to_chat
 
 
 router = Router()
 
 
-async def safe_edit_text(message: Message, text: str) -> None:
-    try:
-        await message.edit_text(text)
-    except TelegramBadRequest:
-        # Telegram может ругаться, если текст не изменился.
-        pass
+async def send_backend_error(
+    message: Message,
+    error: Exception,
+) -> None:
+    if isinstance(error, httpx.ConnectError):
+        text = "Сервис сейчас недоступен. Попробуйте позже."
+
+    elif isinstance(error, httpx.ReadTimeout):
+        text = "Ответ занимает слишком долго. Попробуйте ещё раз."
+
+    elif isinstance(error, httpx.HTTPStatusError):
+        status_code = error.response.status_code
+
+        if status_code == 429:
+            text = "Слишком много запросов. Подождите минуту."
+        elif status_code >= 500:
+            text = "Внутренняя ошибка сервиса."
+        else:
+            text = "Не удалось обработать запрос."
+
+    else:
+        text = f"Не удалось получить ответ: {error}"
+
+    await message.answer(text)
 
 
 @router.message(F.text & ~F.text.startswith("/"))
@@ -32,24 +50,23 @@ async def handle_text_message(
             interface="telegram",
         )
 
-        answer_message = await message.answer("Думаю...")
-        buffer = ""
+        tokens = backend.send_message(
+            chat_id=chat_id,
+            content=message.text,
+        )
 
-        async for chunk in backend.send_message(chat_id, message.text):
-            buffer += chunk
+        result = await stream_to_chat(
+            message=message,
+            tokens=tokens,
+        )
 
-            if buffer.strip():
-                await safe_edit_text(answer_message, buffer)
-
-        if not buffer.strip():
-            await safe_edit_text(
-                answer_message,
-                "Backend вернул пустой ответ.",
+        if not result:
+            await message.answer(
+                "Backend не вернул текст ответа."
             )
 
-    except httpx.HTTPError:
-        await message.answer(
-            "Не удалось получить ответ от backend. Проверь, что chat-сервис запущен."
-        )
-    except RuntimeError as exc:
-        await message.answer(f"Backend вернул ошибку: {exc}")
+    except (
+        httpx.HTTPError,
+        RuntimeError,
+    ) as exc:
+        await send_backend_error(message, exc)

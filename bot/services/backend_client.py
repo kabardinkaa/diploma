@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator
 from uuid import UUID
 
@@ -5,21 +6,13 @@ import httpx
 
 
 class BackendClient:
-    """
-    Тонкий async-клиент к chat-service из Б4.1.
-
-    Бот не знает про LLM и не хранит историю.
-    Он только вызывает backend:
-    - POST /chats
-    - POST /chats/{chat_id}/messages
-    - DELETE /chats/{chat_id}/messages
-    """
+    """Асинхронный клиент Telegram-бота для работы с chat-service."""
 
     def __init__(
         self,
         http_client: httpx.AsyncClient,
         base_url: str,
-    ):
+    ) -> None:
         self.http_client = http_client
         self.base_url = base_url.rstrip("/")
         self._chat_cache: dict[tuple[str, str], UUID] = {}
@@ -40,8 +33,8 @@ class BackendClient:
                 "owner_external_id": owner_external_id,
                 "interface": interface,
                 "system_prompt": (
-                    "Ты ИИ-ассистент внутренней техподдержки. "
-                    "Отвечай кратко, понятно и на русском языке."
+                    "Ты — ИИ-ассистент технической поддержки. "
+                    "Отвечай понятно, вежливо и по существу."
                 ),
             },
         )
@@ -51,62 +44,66 @@ class BackendClient:
         chat_id = UUID(payload["chat_id"])
 
         self._chat_cache[cache_key] = chat_id
-
         return chat_id
 
     async def send_message(
         self,
         chat_id: UUID,
         content: str,
+        media: bytes | None = None,
+        mime: str | None = None,
     ) -> AsyncIterator[str]:
+        multipart_parts: dict[str, tuple] = {
+            "content": (None, content),
+        }
+
+        if media is not None:
+            multipart_parts["media"] = (
+                "file.bin",
+                media,
+                mime or "application/octet-stream",
+            )
+
         async with self.http_client.stream(
             "POST",
             f"{self.base_url}/chats/{chat_id}/messages",
-            json={"content": content},
+            files=multipart_parts,
+            timeout=httpx.Timeout(
+                connect=10.0,
+                read=600.0,
+                write=60.0,
+                pool=10.0,
+            ),
         ) as response:
             response.raise_for_status()
 
-            event_lines: list[str] = []
-
             async for line in response.aiter_lines():
-                if line == "":
-                    if not event_lines:
-                        continue
-
-                    data_parts: list[str] = []
-
-                    for event_line in event_lines:
-                        if event_line.startswith("data:"):
-                            data = event_line.removeprefix("data:")
-
-                            # SSE обычно пишет "data: text".
-                            # Убираем только один служебный пробел после "data:",
-                            # но сохраняем пробелы внутри самого LLM-чанка.
-                            if data.startswith(" "):
-                                data = data[1:]
-
-                            data_parts.append(data)
-                        else:
-                            # Защита от backend-чанков с переносами строк:
-                            # если строка не начинается с data:, не теряем её.
-                            data_parts.append(event_line)
-
-                    event_lines.clear()
-                    data = "\n".join(data_parts)
-
-                    if data == "[DONE]":
-                        continue
-
-                    if not data:
-                        continue
-
-                    if data.startswith("ERROR:"):
-                        raise RuntimeError(data)
-
-                    yield data
+                if not line.startswith("data: "):
                     continue
 
-                event_lines.append(line)
+                raw_payload = line.removeprefix("data: ").strip()
+
+                if not raw_payload:
+                    continue
+
+                payload = json.loads(raw_payload)
+                event_type = payload.get("type")
+
+                if event_type == "token":
+                    delta = payload.get("delta", "")
+
+                    if delta:
+                        yield delta
+
+                elif event_type == "done":
+                    return
+
+                elif event_type == "error":
+                    message = payload.get(
+                        "message",
+                        "Backend returned an unknown error",
+                    )
+                    raise RuntimeError(message)
 
     async def clear_messages(self, chat_id: UUID) -> None:
         response = await self.http_client.delete(
@@ -118,12 +115,17 @@ class BackendClient:
 def build_http_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
         timeout=httpx.Timeout(
-            timeout=30.0,
             connect=10.0,
-            read=30.0,
+            read=600.0,
+            write=60.0,
+            pool=10.0,
         ),
         limits=httpx.Limits(
             max_connections=20,
             max_keepalive_connections=10,
+            keepalive_expiry=30.0,
         ),
+        headers={
+            "X-Client": "telegram-bot/1.0",
+        },
     )
