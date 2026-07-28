@@ -114,7 +114,7 @@ class Settings(BaseSettings):
         default="recursive",
         alias="RAG_CHUNKING_STRATEGY",
     )
-    rag_retrieval_top_k: int = Field(default=10, ge=1, alias="RAG_RETRIEVAL_TOP_K")
+    rag_retrieval_top_k: int = Field(default=5, ge=1, alias="RAG_RETRIEVAL_TOP_K")
     rag_reranker_enabled: bool = Field(default=False, alias="RAG_RERANKER_ENABLED")
     rag_reranker_model: str = Field(
         default="BAAI/bge-reranker-v2-m3",

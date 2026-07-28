@@ -18,7 +18,7 @@ flowchart LR
 
   subgraph QUERY["Online query"]
     U["Question + Postgres history"] --> N["Optional condense"]
-    N --> R["Dense retrieval top_k=10"]
+    N --> R["Dense retrieval top_k=5"]
     R --> RR["Optional BGE reranker"]
     RR --> G["Dense score guard"]
     G --> L["LLM streaming"]
@@ -74,7 +74,7 @@ Runtime state хранится в `.cache/rag/docstore.json` и
 | Embedding | `intfloat/multilingual-e5-base` |
 | Dimension / distance | 768 / COSINE |
 | Chunking | recursive, 512 tokens, overlap 64 |
-| Dense retrieval | top_k=10 |
+| Dense retrieval | top_k=5 |
 | Reranker | disabled by default |
 | Optional reranker | `BAAI/bge-reranker-v2-m3`, top_n=5 |
 | Score threshold | `RAG_MIN_SCORE=0.82`, live recalibrated |

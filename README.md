@@ -761,7 +761,7 @@ python scripts/chunking_experiment.py
 (Markdown, HTML, DOCX, PDF), отдельным offline `IngestionService`, persistent
 docstore и incremental UPSERTS в Qdrant collection `corporate_rag`.
 
-Online-контур поддерживает retrieval top-10, optional reranker, dense score
+Online-контур использует retrieval top-5, optional reranker, dense score
 guard без LLM-вызова, multi-turn condense, явные `[N]` citations и sources в
 синхронном `/rag/query`, chat SSE и Telegram. Документы можно принять через
 `POST /documents/upload` или переиндексировать через
@@ -783,6 +783,7 @@ golden dataset из 30 записей, локальный Qwen3.5-35B-A3B judge 
 локальные E5 embeddings и RAGAS 0.4 с пятью метриками. Два завершённых A/B
 сценария сравнивают chunk size `512`/`256` и top-K `10`/`5`; каждый сохраняет
 timestamped per-row CSV и aggregate JSON. Winner evaluation: top-K `5`.
+По результатам Б5.6 этот вариант применён как финальная production-конфигурация.
 
 Полный протокол, фактические метрики, failure analysis и точные команды:
 [docs/rag_evaluation.md](docs/rag_evaluation.md).

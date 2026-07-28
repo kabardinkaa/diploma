@@ -80,9 +80,9 @@ Top-K 5 improved all measured quality metrics without reindexing. Artifact:
 (`0.964`) при ContextRecall и has_citation `1.000`. Exact evaluated config:
 recursive `512/64`, top-K `5`, reranker disabled, collection `corporate_rag`.
 
-По прямому ограничению текущей задачи production RAG не менялся: deployed
-default остаётся top-K `10`. Top-K `5` зафиксирован как измеренный winner и
-рекомендация для отдельного production change.
+По результатам Б5.6 финальная production-конфигурация использует retrieval top_k=5.
+Изменение применяется только к глубине retrieval и не требует переиндексации
+Qdrant или изменения chunking.
 
 ## Failure Analysis
 
@@ -141,7 +141,7 @@ generation/prompt проблему; это гипотеза, а не доказ�
 
 1. Повторить evaluation тем же local judge на расширенном real-world наборе.
 2. Упростить generation prompt, чтобы исключить generic ticket boilerplate.
-3. Отдельным production change проверить top-K `5` на пользовательском трафике.
+3. Наблюдать качество и latency production top-K `5` на пользовательском трафике.
 4. Сравнить локального judge с другим локальным Qwen checkpoint на фиксированном
    поднаборе, не смешивая результаты одного A/B запуска.
 
