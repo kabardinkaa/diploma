@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     admin_token: SecretStr | None = Field(default=None, alias="ADMIN_TOKEN")
     internal_token: SecretStr | None = Field(default=None, alias="INTERNAL_TOKEN")
     moderation_openai_enabled: bool = Field(default=False, alias="MODERATION_OPENAI_ENABLED")
+    embedding_model: str = Field(
+        default="intfloat/multilingual-e5-base",
+        alias="EMBEDDING_MODEL",
+    )
+    embedding_batch_size: int = Field(default=32, ge=1, alias="EMBEDDING_BATCH_SIZE")
+    embedding_cache_dir: Path = Field(
+        default=Path(".cache/embeddings"),
+        alias="EMBEDDING_CACHE_DIR",
+    )
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 

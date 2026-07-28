@@ -14,8 +14,13 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/diploma
       REDIS_URL: redis://redis:6379/0
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      EMBEDDING_MODEL: intfloat/multilingual-e5-base
+      EMBEDDING_BATCH_SIZE: 32
+      EMBEDDING_CACHE_DIR: /app/.cache/embeddings
       NO_PROXY: localhost,127.0.0.1,redis,app,phoenix,postgres
       no_proxy: localhost,127.0.0.1,redis,app,phoenix,postgres
+    volumes:
+      - embedding-cache:/app/.cache/embeddings
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,6 +97,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  embedding-cache: {}
   pg-data: {}
   redis_data: {}
   phoenix-data: {}

@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .venv*/
 .tmp*/
+.cache/embeddings/
 .env
 logs/*.jsonl
 var/
