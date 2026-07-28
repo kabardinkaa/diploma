@@ -15,6 +15,7 @@ Qdrant выбран как self-hosted слой retrieval: он использу
 | Production collection | `documents` |
 | Distance | `COSINE` |
 | Client | `AsyncQdrantClient` |
+| Qdrant server | `v1.18.0` |
 
 URL, API key, collection и dimension читаются из `app/core/config.py`. API key
 хранится как optional `SecretStr`.
@@ -37,7 +38,7 @@ ID точки вычисляется как UUIDv5 от `source + chunk_index` �
 namespace. Повторный запуск для того же business key перезаписывает точку, а не
 создаёт новую.
 
-In-memory smoke на реальных E5-векторах:
+Два последовательных запуска загрузчика на реальном Qdrant в Docker:
 
 | Прогон | points_count |
 |---|---:|
@@ -65,10 +66,9 @@ production contract нет.
 
 ## Metadata filters
 
-Результаты ниже получены реальным запуском `scripts/vector_store_smoke.py
---local` на 128 E5-векторах. Local Qdrant применяет фильтры, но не строит
-payload-индексы; серверный Qdrant создаёт все пять индексов в
-`ensure_collection()`.
+Результаты ниже получены реальным запуском `scripts/vector_store_smoke.py`
+на 128 E5-векторах в Qdrant `v1.18.0`. Все пять payload-индексов созданы
+сервером через `ensure_collection()`.
 
 ### MATCH: category = vpn
 
@@ -104,7 +104,7 @@ Filter(
 ```
 
 Запрос: «Как импортировать vpn-office-2024.conf после обновления VPN-клиента?».
-Фактический cutoff прогона: `2026-06-28T17:11:36.780724+00:00`.
+Фактический cutoff прогона: `2026-06-28T17:23:23.517091+00:00`.
 
 Без фильтра:
 
@@ -179,8 +179,10 @@ Fallback без Docker:
 python scripts/vector_store_smoke.py --local
 ```
 
-В среде выполнения Docker daemon был недоступен: отсутствовал named pipe
-`dockerDesktopLinuxEngine`. Поэтому dashboard и серверные counts не проверены.
-Фактические search/filter/COSINE-vs-DOT результаты выше получены в local
-in-memory mode `qdrant-client`; серверные payload indexes покрыты unit-тестами
-через async fake client.
+Фактическая проверка выполнена на контейнере `diploma-qdrant-1` с образом
+`qdrant/qdrant:v1.18.0`: контейнер получил status `healthy`, коллекция
+`documents` доступна через `GET /collections`, dashboard отвечает HTTP 200.
+Последовательные запуски загрузчика дали `points_count=128` и
+`points_count=128`, поэтому идемпотентность подтверждена. Smoke-тест работал
+в режиме `qdrant-server`; результаты поиска, сравнения метрик и фильтров
+совпали с предварительным in-memory прогоном.
