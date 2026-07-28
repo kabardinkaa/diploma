@@ -4,6 +4,7 @@ __pycache__/
 .venv*/
 .tmp*/
 .cache/embeddings/
+.cache/rag/
 .env
 logs/*.jsonl
 var/

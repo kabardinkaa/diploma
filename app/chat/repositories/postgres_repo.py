@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     role text NOT NULL,
     content text NOT NULL,
     media_refs jsonb,
+    sources jsonb NOT NULL DEFAULT '[]'::jsonb,
     prompt_id uuid,
     tokens integer,
     created_at timestamptz NOT NULL,
@@ -75,6 +76,9 @@ CREATE TABLE IF NOT EXISTS system_prompts (
     traffic_pct integer NOT NULL,
     notes text
 );
+
+ALTER TABLE chat_messages
+ADD COLUMN IF NOT EXISTS sources jsonb NOT NULL DEFAULT '[]'::jsonb;
 """
 
 
@@ -137,6 +141,9 @@ class PostgresChatRepository:
         media_refs = row["media_refs"]
         if isinstance(media_refs, str):
             media_refs = json.loads(media_refs)
+        sources = row["sources"]
+        if isinstance(sources, str):
+            sources = json.loads(sources)
 
         return ChatMessage(
             id=row["id"],
@@ -144,6 +151,7 @@ class PostgresChatRepository:
             role=row["role"],
             content=row["content"],
             media_refs=media_refs,
+            sources=sources or [],
             prompt_id=row["prompt_id"],
             tokens=row["tokens"],
             created_at=row["created_at"],
@@ -195,8 +203,8 @@ class PostgresChatRepository:
             await conn.execute(
                 """
                 INSERT INTO chat_messages
-                (id, chat_id, role, content, media_refs, prompt_id, tokens, created_at)
-                VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)
+                (id, chat_id, role, content, media_refs, sources, prompt_id, tokens, created_at)
+                VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9)
                 """,
                 message.id,
                 chat_id,
@@ -205,6 +213,7 @@ class PostgresChatRepository:
                 json.dumps(message.media_refs, ensure_ascii=False)
                 if message.media_refs is not None
                 else None,
+                json.dumps(message.sources, ensure_ascii=False),
                 message.prompt_id,
                 message.tokens,
                 message.created_at,

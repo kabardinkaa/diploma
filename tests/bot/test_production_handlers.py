@@ -9,6 +9,7 @@ from bot.handlers.feedback import handle_feedback
 from bot.handlers.operator import cmd_operator
 from bot.handlers.text import send_backend_error
 from bot.keyboards.feedback import feedback_kb
+from bot.services.streaming import EDIT_INTERVAL_SECONDS, with_sources
 
 
 @pytest.mark.asyncio
@@ -83,3 +84,18 @@ async def test_operator_command_sets_handoff() -> None:
 
     backend.set_handoff.assert_awaited_once_with(chat_id)
     message.answer.assert_awaited_once_with("Передаю запрос оператору, ожидайте.")
+
+
+def test_telegram_sources_are_short_and_message_limit_is_respected() -> None:
+    result = with_sources(
+        "x" * 5000,
+        [
+            {"file_name": "vpn.pdf"},
+            {"file_name": "access.md"},
+            {"file_name": "vpn.pdf"},
+        ],
+    )
+    assert len(result) <= 4096
+    assert "Источники:" in result
+    assert result.count("vpn.pdf") == 1
+    assert EDIT_INTERVAL_SECONDS >= 0.7

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM python:3.13-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -18,13 +18,20 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY requirements.txt .
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    --index-url https://download.pytorch.org/whl/cpu \
+    "torch==2.7.1+cpu"
+
+RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install -r requirements.txt
 
 COPY app ./app
 COPY bot ./bot
+COPY scripts ./scripts
+COPY data ./data
 
 
-FROM python:3.13-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -35,7 +42,8 @@ RUN useradd --create-home --uid 1000 appuser
 WORKDIR /app
 
 COPY --from=builder --chown=appuser:appuser /app /app
-RUN mkdir -p /app/.cache/embeddings && chown -R appuser:appuser /app/.cache
+RUN mkdir -p /app/.cache/embeddings /app/.cache/rag /app/data \
+    && chown -R appuser:appuser /app/.cache /app/data
 
 USER appuser
 

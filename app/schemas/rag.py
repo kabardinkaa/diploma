@@ -14,12 +14,15 @@ class RAGQueryRequest(BaseModel):
 
 
 class RAGSource(BaseModel):
-    text: str
-    source: str
+    id: int = Field(ge=1)
+    file_name: str
+    page: int | None = None
     score: float
+    snippet: str
 
 
 class RAGQueryResponse(BaseModel):
     answer: str
     top_score: float
+    confident: bool
     sources: list[RAGSource]

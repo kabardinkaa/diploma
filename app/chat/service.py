@@ -37,12 +37,19 @@ class ChatService:
         llm_service: LLMService,
         moderation_service: ModerationService | None = None,
         context_window: int = 10,
+        rag_service: Any | None = None,
     ) -> None:
         self.repository = repository
         self.llm_service = llm_service
         self.moderation_service = moderation_service or ModerationService()
         self.context_window = context_window
+        self.rag_service = rag_service
         self.last_assistant_message_id: UUID | None = None
+        self.last_sources: list[dict[str, Any]] = []
+        self.last_rag_meta: dict[str, Any] = {
+            "top_score": 0.0,
+            "confident": False,
+        }
 
     async def create_chat(
         self,
@@ -167,6 +174,7 @@ class ChatService:
             return
 
         media_part = (media_refs or {}).get("part")
+        use_rag = media_refs is None and self.rag_service is not None
         stored_content = user_content
 
         # Голос и документы уже преобразованы в текст.
@@ -216,6 +224,59 @@ class ChatService:
         ]
 
         selected_prompt = await self.select_prompt(chat.owner_external_id)
+
+        if use_rag:
+            provider_chunks: list[str] = []
+            final_event: dict[str, Any] | None = None
+            async for event in self.rag_service.stream_answer(
+                stored_content,
+                history=history[:-1],
+            ):
+                if event.get("type") == "token" and event.get("delta"):
+                    provider_chunks.append(str(event["delta"]))
+                elif event.get("type") == "sources":
+                    final_event = event
+
+            if final_event is None:
+                raise RuntimeError("RAG stream ended without sources event")
+
+            assistant_content = str(final_event["answer"]).strip()
+            output_result = await self.moderation_service.check_output(
+                assistant_content
+            )
+            sources = list(final_event.get("sources") or [])
+            if not output_result.allowed:
+                assistant_content = MODERATION_SAFE_MESSAGE
+                sources = []
+
+            assistant_message = ChatMessage(
+                chat_id=chat_id,
+                role="assistant",
+                content=assistant_content,
+                sources=sources,
+                prompt_id=selected_prompt.id if selected_prompt else None,
+            )
+            await self.repository.append_message(chat_id, assistant_message)
+            self.last_assistant_message_id = assistant_message.id
+            self.last_sources = sources
+            self.last_rag_meta = {
+                "top_score": final_event.get("top_score", 0.0),
+                "confident": bool(final_event.get("confident")),
+                "condensed_query": final_event.get("condensed_query"),
+            }
+
+            offset = 0
+            lengths = [len(chunk) for chunk in provider_chunks if chunk]
+            if not lengths:
+                lengths = [64]
+            for length in lengths:
+                delta = assistant_content[offset : offset + length]
+                if delta:
+                    yield delta
+                offset += length
+            if offset < len(assistant_content):
+                yield assistant_content[offset:]
+            return
 
         if selected_prompt is not None:
             llm_messages.append(
@@ -307,5 +368,10 @@ class ChatService:
                 )
 
                 self.last_assistant_message_id = assistant_message.id
+                self.last_sources = []
+                self.last_rag_meta = {
+                    "top_score": 0.0,
+                    "confident": False,
+                }
 
                 yield assistant_content

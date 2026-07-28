@@ -21,8 +21,10 @@ services:
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       QDRANT_COLLECTION: documents
       EMBEDDING_DIM: 768
-      RAG_DATA_DIR: data/rag-block-03
+      RAG_DATA_DIR: /app/data
       RAG_COLLECTION: rag_block_03
+      RAG_PRODUCTION_COLLECTION: ${RAG_PRODUCTION_COLLECTION:-corporate_rag}
+      RAG_DOCSTORE_PATH: /app/.cache/rag/docstore.json
       RAG_BAREMETAL_COLLECTION: rag_block_03_baremetal
       RAG_CHUNK_SIZE: 512
       RAG_CHUNK_OVERLAP: 64
@@ -32,11 +34,15 @@ services:
       RAG_RETRIEVAL_TOP_K: ${RAG_RETRIEVAL_TOP_K:-10}
       RAG_RERANKER_ENABLED: ${RAG_RERANKER_ENABLED:-false}
       RAG_RERANKER_MODEL: ${RAG_RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
-      RAG_RERANK_TOP_N: ${RAG_RERANK_TOP_N:-10}
+      RAG_RERANK_TOP_N: ${RAG_RERANK_TOP_N:-5}
+      RAG_CONDENSE_ENABLED: ${RAG_CONDENSE_ENABLED:-true}
+      RAG_MAX_SOURCES: ${RAG_MAX_SOURCES:-5}
       NO_PROXY: localhost,127.0.0.1,redis,app,phoenix,postgres,qdrant
       no_proxy: localhost,127.0.0.1,redis,app,phoenix,postgres,qdrant
     volumes:
-      - embedding-cache:/app/.cache/embeddings
+      - ./.cache/embeddings:/app/.cache/embeddings
+      - rag-state:/app/.cache/rag
+      - ./data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,6 +66,35 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  ingest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llm-service:v1
+    command: ["python", "scripts/ingest.py", "/app/data", "--mode", "incremental"]
+    profiles: ["tools"]
+    env_file:
+      - .env
+    environment:
+      EMBEDDING_MODEL: intfloat/multilingual-e5-base
+      EMBEDDING_CACHE_DIR: /app/.cache/embeddings
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      RAG_DATA_DIR: /app/data
+      RAG_PRODUCTION_COLLECTION: ${RAG_PRODUCTION_COLLECTION:-corporate_rag}
+      RAG_DOCSTORE_PATH: /app/.cache/rag/docstore.json
+      RAG_CHUNKING_STRATEGY: recursive
+      RAG_CHUNK_SIZE: 512
+      RAG_CHUNK_OVERLAP: 64
+    volumes:
+      - ./.cache/embeddings:/app/.cache/embeddings
+      - rag-state:/app/.cache/rag
+      - ./data:/app/data
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    restart: "no"
+
   bot:
     build:
       context: .
@@ -75,6 +110,8 @@ services:
     depends_on:
       app:
         condition: service_healthy
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   postgres:
@@ -136,7 +173,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  embedding-cache: {}
+  rag-state: {}
   pg-data: {}
   qdrant-storage: {}
   redis_data: {}

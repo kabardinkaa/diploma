@@ -86,10 +86,18 @@ class Settings(BaseSettings):
     qdrant_collection: str = Field(default="documents", alias="QDRANT_COLLECTION")
     embedding_dim: int = Field(default=768, ge=1, alias="EMBEDDING_DIM")
     rag_data_dir: Path = Field(
-        default=Path("data/rag-block-03"),
+        default=Path("data"),
         alias="RAG_DATA_DIR",
     )
     rag_collection: str = Field(default="rag_block_03", alias="RAG_COLLECTION")
+    rag_production_collection: str = Field(
+        default="corporate_rag",
+        alias="RAG_PRODUCTION_COLLECTION",
+    )
+    rag_docstore_path: Path = Field(
+        default=Path(".cache/rag/docstore.json"),
+        alias="RAG_DOCSTORE_PATH",
+    )
     rag_baremetal_collection: str = Field(
         default="rag_block_03_baremetal",
         alias="RAG_BAREMETAL_COLLECTION",
@@ -112,7 +120,9 @@ class Settings(BaseSettings):
         default="BAAI/bge-reranker-v2-m3",
         alias="RAG_RERANKER_MODEL",
     )
-    rag_rerank_top_n: int = Field(default=10, ge=10, alias="RAG_RERANK_TOP_N")
+    rag_rerank_top_n: int = Field(default=5, ge=1, alias="RAG_RERANK_TOP_N")
+    rag_condense_enabled: bool = Field(default=True, alias="RAG_CONDENSE_ENABLED")
+    rag_max_sources: int = Field(default=5, ge=1, le=10, alias="RAG_MAX_SOURCES")
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 

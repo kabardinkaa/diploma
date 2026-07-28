@@ -5,7 +5,7 @@ from aiogram.types import Message
 from bot.handlers.commands import get_owner_external_id
 from bot.keyboards.feedback import feedback_kb
 from bot.services.backend_client import BackendClient
-from bot.services.streaming import stream_to_chat
+from bot.services.streaming import safe_edit_message, stream_to_chat, with_sources
 
 
 router = Router()
@@ -63,6 +63,10 @@ async def handle_text_message(
             message=message,
             tokens=tokens,
         )
+
+        if result and backend.last_sources:
+            result.text = with_sources(result.text, backend.last_sources)
+            await safe_edit_message(result.message, result.text)
 
         if result and backend.last_message_id is not None:
             await result.message.edit_reply_markup(

@@ -116,6 +116,34 @@ async def test_send_message_parses_json_sse_frames() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_message_captures_sources_event() -> None:
+    chat_id = uuid4()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            content=(
+                'data: {"type":"token","delta":"Ответ [1]"}\n\n'
+                'event: sources\n'
+                'data: {"type":"sources","sources":[{"id":1,'
+                '"file_name":"vpn.pdf"}],"top_score":0.91,"confident":true}\n\n'
+                'data: {"type":"done"}\n\n'
+            ).encode(),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler)
+    ) as http_client:
+        backend = BackendClient(http_client, "http://backend.test")
+        chunks = [item async for item in backend.send_message(chat_id, "VPN?")]
+
+    assert chunks == ["Ответ [1]"]
+    assert backend.last_sources[0]["file_name"] == "vpn.pdf"
+    assert backend.last_rag_meta["confident"] is True
+
+
+@pytest.mark.asyncio
 async def test_send_message_preserves_spaces_and_multiline_chunks() -> None:
     chat_id = uuid4()
 

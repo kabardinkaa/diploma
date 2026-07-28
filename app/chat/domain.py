@@ -25,6 +25,7 @@ class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
     media_refs: dict | None = None
+    sources: list[dict] = Field(default_factory=list)
     prompt_id: UUID | None = None
     tokens: int | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

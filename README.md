@@ -755,3 +755,23 @@ golden dataset из 24 вопросов:
 ```powershell
 python scripts/chunking_experiment.py
 ```
+## Домашнее задание 5.5 - Корпоративный RAG-ассистент
+
+Проект расширен до production-like RAG с 73 учебными multi-format документами
+(Markdown, HTML, DOCX, PDF), отдельным offline `IngestionService`, persistent
+docstore и incremental UPSERTS в Qdrant collection `corporate_rag`.
+
+Online-контур поддерживает retrieval top-10, optional reranker, dense score
+guard без LLM-вызова, multi-turn condense, явные `[N]` citations и sources в
+синхронном `/rag/query`, chat SSE и Telegram. Документы можно принять через
+`POST /documents/upload` или переиндексировать через
+`POST /documents/reindex`; Telegram остаётся thin client.
+
+Подробности: [docs/rag.md](docs/rag.md) и
+[docs/data_inventory.md](docs/data_inventory.md).
+
+```powershell
+docker compose up -d --build
+python scripts/ingest.py data/
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```

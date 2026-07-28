@@ -9,6 +9,7 @@ from app.chat.deps import ChatServiceDep
 from app.chat.domain import Chat, ChatMessage
 from app.chat.media import media_to_part
 from app.chat.service import ModerationBlockedError
+from app.services.rag import sanitize_sse_payload
 
 
 router = APIRouter(prefix="/chats", tags=["chat-history"])
@@ -127,9 +128,21 @@ async def send_message(
 
                 yield (
                     "data: "
-                    + json.dumps(payload, ensure_ascii=False)
+                    + sanitize_sse_payload(payload)
                     + "\n\n"
                 )
+
+            sources_payload = {
+                "type": "sources",
+                "sources": service.last_sources,
+                **service.last_rag_meta,
+            }
+            yield (
+                "event: sources\n"
+                "data: "
+                + sanitize_sse_payload(sources_payload)
+                + "\n\n"
+            )
 
             done_payload = {
                 "type": "done",
@@ -142,7 +155,7 @@ async def send_message(
 
             yield (
                 "data: "
-                + json.dumps(done_payload, ensure_ascii=False)
+                + sanitize_sse_payload(done_payload)
                 + "\n\n"
             )
 

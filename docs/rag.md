@@ -1,213 +1,193 @@
-# RAG architecture - LlamaIndex
-
-## Dependencies
-
-Фактически установленные и проверенные версии:
-
-| Package | Version |
-| --- | --- |
-| `llama-index` | `0.14.23` |
-| `llama-index-core` | `0.14.23` |
-| `llama-index-vector-stores-qdrant` | `0.10.2` |
-| `llama-index-readers-file` | `0.6.0` |
-| `llama-index-embeddings-huggingface` | `0.7.0` |
-| `llama-index-llms-openai` | `0.7.10` |
-| `llama-index-llms-openai-like` | `0.7.2` |
-
-Стандартный `llama_index.llms.openai.OpenAI` был сначала проверен на текущей
-модели `openrouter/free` и завершился ошибкой `Unknown model 'openrouter/free'`
-при вычислении context window. Поэтому для настроенного OpenRouter/OpenAI-
-compatible `base_url` используется `OpenAILike` с явным context window. Для
-прямого OpenAI без custom `base_url` остается стандартный `OpenAI`.
+# Corporate RAG
 
 ## Architecture
 
-RAG разделен на три фазы:
+Индексация и обработка пользовательского запроса являются независимыми
+контурами:
 
-```text
-offline ingestion -> online retrieval -> generation
+```mermaid
+flowchart LR
+  subgraph INGESTION["Offline ingestion"]
+    F["Files: PDF / DOCX / HTML / MD"] --> P["Format readers"]
+    P --> M["Cleaning + metadata"]
+    M --> C["Recursive chunking 512 / 64"]
+    C --> E["multilingual-e5-base"]
+    E --> Q["Qdrant: corporate_rag"]
+    D["Persistent SimpleDocumentStore"] <--> C
+  end
+
+  subgraph QUERY["Online query"]
+    U["Question + Postgres history"] --> N["Optional condense"]
+    N --> R["Dense retrieval top_k=10"]
+    R --> RR["Optional BGE reranker"]
+    RR --> G["Dense score guard"]
+    G --> L["LLM streaming"]
+    L --> A["Answer + numbered citations"]
+  end
 ```
 
-На старте приложения `RAGService.build()` либо индексирует пустую коллекцию,
-либо подключается к готовой через `VectorStoreIndex.from_vector_store()`.
-Retriever и QueryEngine создаются один раз. Endpoint выполняет retrieval,
-проверяет score и вызывает `aquery()` только при достаточной релевантности.
+`RAGService.build()` только подключает `QdrantVectorStore` к существующей
+collection и создаёт retriever. Он не читает `data/`, не строит embeddings и
+не запускает ingestion. Пустая или ещё не созданная collection даёт безопасный
+fallback при запросе.
 
 ## Corpus
 
-`data/rag-block-03/` содержит ровно 10 учебных документов, собранных как
-подмножество и адаптация синтетического корпуса Б5.2:
+Ingestion root `data/` содержит 73 поддерживаемых документа: 25 Markdown, 16
+HTML, 16 DOCX и 16 PDF. Это учебный предметный корпус внутренней техподдержки,
+собранный из `data/support_kb.json`; подробная фактическая инвентаризация и
+размеры находятся в [data_inventory.md](data_inventory.md).
 
-1. VPN и внутренние ресурсы.
-2. CRM.
-3. Корпоративная почта.
-4. Пароли, SSO и MFA.
-5. Доступ к внутренним системам.
-6. Рабочее место.
-7. Сеть и Wi-Fi.
-8. Гарнитура и микрофон.
-9. Создание обращения.
-10. Уход за офисными растениями, намеренно нерелевантный документ.
+`scripts/build_corporate_corpus.py` воспроизводимо строит 64 multi-format
+документа. Старые артефакты Б5.2-Б5.4 не удаляются.
 
-В корпусе нет HR-процедур и правил оформления отпуска.
+## Ingestion
 
-## Collections
+`IngestionService` выполняет:
 
-| Collection | Purpose | Real points count |
-| --- | --- | ---: |
-| `documents` | Б5.2, плоский payload qdrant-client | 128, не изменялась |
-| `rag_block_03` | LlamaIndex Node payload с `_node_content` | 10 |
-| `rag_block_03_baremetal` | Ручной payload `text/source/chunk_index` | 10 |
+1. Рекурсивный поиск поддерживаемых файлов.
+2. Явный выбор `PyMuPDFReader`, `DocxReader`, `HTMLTagReader` или
+   `MarkdownReader`.
+3. Безопасную нормализацию переносов и пустых строк.
+4. Metadata enrichment: `source`, `source_path`, `file_name`, `category`,
+   `doc_type`, `last_modified`, `version`, `author`, `language`.
+5. Recursive chunking из `app/services/chunking.py`.
+6. Нормализованные E5 embeddings и UPSERT в `corporate_rag`.
+7. Сохранение `SimpleDocumentStore` и content manifest между процессами.
 
-Коллекция `documents` не используется LlamaIndex: ее плоский payload не
-содержит сериализованный Node, необходимый для `source_nodes`, metadata и
-цитирования. Раздельные RAG-коллекции также не смешивают разные форматы
-payload и позволяют честно сравнивать orchestration и ручную реализацию.
+`source_path`, `last_modified`, `author`, `version` и `doc_type` исключены из
+embedding metadata. Stable document ID равен SHA-256 нормализованного
+относительного пути; для многостраничного документа к нему добавляется номер
+части.
 
-Повторный build дал `10 -> 10` точек для обеих RAG-коллекций. LlamaIndex
-подключился через `from_vector_store`, bare-metal не выполнял повторный upsert.
+Runtime state хранится в `.cache/rag/docstore.json` и
+`.cache/rag/docstore.manifest.json`, не коммитится и подключён к Docker volume
+`rag-state`. Неизменный повторный запуск не парсит и не переэмбеддит документы.
+Ошибка одного parser-а не останавливает batch: файл получает суффикс `.failed`,
+а ошибка попадает в structured report.
 
-## Configuration
+## Query pipeline
 
 | Parameter | Value |
 | --- | --- |
-| Embedding model | `intfloat/multilingual-e5-base` |
-| Dimension | 768 |
-| Distance | COSINE |
-| Chunk size | 512 |
-| Chunk overlap | 64 |
-| Similarity top-K | 3 |
-| Minimum score | 0.82 |
-| LLM provider | OpenRouter / OpenAI-compatible |
-| Live model | `openrouter/free` |
-| Temperature | 0.0 |
+| Collection | `corporate_rag` |
+| Embedding | `intfloat/multilingual-e5-base` |
+| Dimension / distance | 768 / COSINE |
+| Chunking | recursive, 512 tokens, overlap 64 |
+| Dense retrieval | top_k=10 |
+| Reranker | disabled by default |
+| Optional reranker | `BAAI/bge-reranker-v2-m3`, top_n=5 |
+| Score threshold | `RAG_MIN_SCORE=0.82`, live recalibrated |
+| Maximum shown sources | 5 |
 
-LlamaIndex `HuggingFaceEmbedding` настроен с `query_instruction="query: "`,
-`text_instruction="passage: "` и `normalize=True`. Реальный sanity-прогон:
-dimension `768`, query norm `1.0`, VPN score `0.906308`, нерелевантный документ
-про растения `0.754444`.
+Reranker остаётся выключенным по результатам Б5.4: на тестовом наборе качество
+без него уже было `1.0 / 1.0 / 1.0`, а CPU latency выросла примерно на 1.3
+секунды. При включении BGE меняет порядок top-10 candidates, но score guard
+всегда сравнивает порог с исходным dense cosine score.
 
-Все значения, пути и имена коллекций читаются из `app/core/config.py` и env.
-Секреты в документации и репозитории отсутствуют.
+Если есть короткий follow-up и история, condense-вызов с temperature 0
+переписывает только поисковый запрос. Generation получает исходный вопрос,
+существующее окно Postgres history и retrieved context. При ошибке condense
+используется исходный вопрос; второй memory store не создаётся.
 
-## LlamaIndex pipeline
+## Score guard
 
-```text
-SimpleDirectoryReader
--> SentenceSplitter(512, 64)
--> QdrantVectorStore(rag_block_03)
--> VectorStoreIndex
--> Retriever(top_k=3)
--> QueryEngine(compact)
--> OpenAILike/OpenAI LLM
+Если retrieval пуст или максимальный dense score ниже `RAG_MIN_SCORE`, LLM не
+вызывается. Контракт:
+
+```json
+{
+  "answer": "По базе не нашёл, могу эскалировать.",
+  "top_score": 0.0,
+  "confident": false,
+  "sources": []
+}
 ```
 
-Metadata каждого Document содержит `file_name` и `source`. Готовая коллекция
-дополнительно проверяется на dimension, COSINE и наличие `_node_content`.
+Фактическая калибровка выполнена на Docker Qdrant после ingest 73 документов.
+Вопросы были зафиксированы в `scripts/corporate_rag_smoke.py` до запуска:
 
-## Bare-metal pipeline
+| Group | Min score | Median | Max |
+| --- | ---: | ---: | ---: |
+| in-base | 0.850 | 0.864 | 0.879 |
+| out-of-base | 0.761 | 0.796 | 0.809 |
 
-```text
-read sorted files
--> deterministic word chunks
--> EmbeddingService.embed_documents()
--> UUIDv5 upsert into rag_block_03_baremetal
--> EmbeddingService.embed_query()
--> qdrant-client query_points()
--> manual context/system/question prompt
--> AsyncOpenAI chat completion
-```
+Группы не пересекаются: максимум out-of-base `0.809` ниже минимума in-base
+`0.850`. Поэтому сохраняется ранее откалиброванный E5 threshold `0.82`; он не
+заменяется на методический `0.3`, относящийся к другому embedding setup.
 
-В generation передается полный retrieved payload; в API preview источника
-ограничен первыми 300 символами. Старый deprecated `search()` не используется.
+## Citations and streaming
 
-## LlamaIndex vs bare-metal
+Retrieved context нумеруется `[1]`, `[2]`, ...; source contract содержит:
+`id`, `file_name`, nullable `page`, dense `score`, `snippet` до 300 символов.
+Некорректные citation IDs удаляются, а при отсутствии ссылки к confident
+ответу добавляется `[1]`. При refusal источники не показываются.
 
-LOC посчитан AST-скриптом по методам ingestion/retrieval/generation классов,
-без imports, `__init__`, CLI и cleanup. В LlamaIndex-число вошли дополнительные
-проверки совместимости готовой коллекции.
+ChatService использует RAG для text-only сообщений, но сохраняет существующий
+multimodal flow для media. Provider stream собирается для output moderation,
+после чего SSE отдаёт несколько `token` payload, отдельный `event: sources` и
+`done` с `message_id`. Показанные sources сохраняются в JSON/JSONB поле
+assistant message, поэтому существующий feedback остаётся привязан к ответу.
 
-| Criterion | LlamaIndex | Bare-metal |
-| --- | --- | --- |
-| Строк кода ingestion + query, без imports | 178 | 110 |
-| Поддержка форматов из коробки | Reader для TXT/MD/PDF/DOCX и других форматов | Сейчас TXT/MD |
-| Что нужно для PDF/DOCX | Пакет readers-file и доступные parser dependencies | Явный parser и нормализация metadata |
-| Batch ingestion / async | Framework batching, async retriever/query engine | Ручной batch embeddings/upsert и `to_thread` |
-| Debug top_score / sources | `source_nodes` с Node metadata | Прозрачный `ScoredPoint.payload` |
-| Подмена re-ranker / chunker | Компоненты QueryEngine/transformations | Ручная замена и обновление orchestration |
+Telegram-бот не содержит RAG-логики. Он редактирует одно сообщение с debounce
+0.8 секунды, добавляет до пяти имён файлов и feedback-кнопки, соблюдая лимит
+4096 символов.
 
-LlamaIndex остается основной реализацией диплома: он дает стандартные Node,
-reader, retriever, QueryEngine и расширяемые компоненты. В этой небольшой
-задаче его код длиннее из-за явной production-проверки коллекции, а не из-за
-самого pipeline. Bare-metal остается учебной reference implementation: он
-проще для отладки конкретного Qdrant-запроса, но потребует больше собственного
-кода при добавлении форматов и компонентов.
+## Endpoints
 
-## Fallback
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /rag/query` | Синхронный RAG contract |
+| `POST /documents/upload` | 202 + background ingest одного файла |
+| `POST /documents/reindex` | 202 + `full`, `incremental` или `files` |
+| `POST /chats/{id}/messages` | RAG SSE для text-only chat |
+| `POST /chats/{id}/messages/{message_id}/feedback` | Existing feedback |
+| `POST /chats/{id}/handoff` | Existing operator handoff |
 
-Стартовый порог `0.5` был реально проверен и оказался слишком низким для
-нормализованных multilingual E5 embeddings. Top scores четырех вопросов с
-ответом лежат в диапазоне `0.869-0.909`, а вопрос про отпуск получил `0.782`.
-Порог откалиброван до `0.82`, между этими группами.
-
-При пустом retrieval или score ниже `RAG_MIN_SCORE` LLM не вызывается. Обе
-реализации возвращают:
-
-```text
-В базе знаний не нашлось информации для ответа на этот вопрос.
-```
-
-Low-score candidates остаются в `sources` для диагностики.
-
-## Прогон 5 вопросов
-
-Фактический прогон: 3 good / 1 medium / 1 out-of-base.
-
-| Type | Question | LlamaIndex top-1 / score | Bare-metal top-1 / score | Result |
-| --- | --- | --- | --- | --- |
-| good | Что проверить, если VPN подключился, но внутренние ресурсы не открываются? | `01_vpn.md` / 0.909 | `01_vpn.md` / 0.909 | Релевантно, ответ про профиль, DNS и переподключение; fallback no |
-| good | Как разблокировать учетную запись в CRM? | `02_crm.md` / 0.907 | `02_crm.md` / 0.908 | Retrieval релевантен; bare-metal ответ корректен, финальный LlamaIndex вызов получил технический ответ free-provider; fallback no |
-| good | Что делать, если в гарнитуре не работает микрофон? | `08_headset_microphone.md` / 0.888 | `08_headset_microphone.md` / 0.889 | Retrieval релевантен; bare-metal ответ корректен, финальный LlamaIndex вызов получил технический ответ free-provider; fallback no |
-| medium | После смены пароля перестал работать вход сразу в несколько внутренних систем. Что проверить? | `04_passwords_sso_mfa.md` / 0.869 | `04_passwords_sso_mfa.md` / 0.871 | Релевантно; top-3 также содержит почту, поэтому возможен синтез; fallback no |
-| out-of-base | Как оформить ежегодный отпуск на две недели? | `05_internal_access.md` / 0.782 | `10_office_plants.txt` / 0.782 | Нерелевантные weak candidates, fallback yes |
-
-Top-1 совпал в обеих реализациях для всех четырех вопросов с ответом. Для
-out-of-base top-1 различается, но обе версии отсекают запрос по одному score.
-Гипотеза: общие слова «оформить» и «две недели» дают слабую семантическую
-близость к заявкам и инструкциям, но score заметно ниже релевантной группы.
-
-`openrouter/free` нестабилен: несколько live good-запросов вернули техническую
-строку `User Safety: safe`, а другие запуски с теми же retrieval results дали
-корректные ответы. Финальный smoke получил эту строку для CRM и микрофона;
-VPN и medium были сгенерированы нормально. Это ограничение бесплатного
-маршрутизатора, а не retrieval; для production следует закрепить конкретную
-поддерживаемую модель.
-
-## API
-
-```bash
-curl -X POST http://localhost:8000/rag/query \
-  -H "Content-Type: application/json" \
-  -d "{\"question\":\"Как разблокировать учетную запись в CRM?\"}"
-```
-
-Реальная проверка FastAPI: `/health` вернул `ok`, `/docs` - HTTP 200,
-good query - HTTP 200, `top_score=0.909`, 3 sources; out-of-base - HTTP 200,
-`top_score=0.782`, 3 debug sources и честный fallback.
+Upload принимает `.pdf`, `.docx`, `.html`, `.htm`, `.md`, отбрасывает path
+traversal и валидирует category по `[A-Za-z0-9_-]+`. Full reindex очищает только
+`corporate_rag` и её docstore, не затрагивая коллекции прошлых работ.
 
 ## Commands
 
 ```powershell
-pip install -r requirements.txt
-docker compose up -d qdrant
-docker compose ps
-python scripts/rag_embedding_sanity.py
-python -m app.services.rag
-python -m app.services.rag_baremetal
-python scripts/rag_smoke.py
+python scripts/build_corporate_corpus.py
+python scripts/ingest.py data/
+python scripts/ingest.py data/
+python scripts/ingest.py data/ --mode full
+docker compose --profile tools run --rm ingest
 python -m uvicorn app.main:app --reload --port 8000
 pytest -q
 python -m compileall app bot scripts
-git diff --check
 docker compose config --quiet
+docker compose up -d --build
 ```
+
+## Live verification
+
+Проверка выполнена 28 июля 2026 года на
+`qdrant/qdrant:v1.18.0` в Docker:
+
+| Check | Actual result |
+| --- | --- |
+| First `python scripts/ingest.py data/` | 73 changed, 0 unchanged, 0 failed, 73 nodes, 73 points, 12.0 s |
+| Identical second ingest | 0 changed, 73 unchanged, 0 failed, 0 nodes, 73 points, 0.05 s |
+| Isolated changed-file check | exactly 1 changed, points `1 -> 1`, smoke collection removed |
+| In-base `/rag/query` | VPN, score 0.861, confident true, 5 sources, citations `[1]`-`[4]` |
+| Out-of-base `/rag/query` | vacation, score 0.805, confident false, exact fallback, no sources, `generate_ms=0.0` |
+| Multi-turn | follow-up condensed to `VPN не пускает после восстановления доступа`; 5 VPN sources |
+| Chat SSE | 101 token events, then sources, then done with `message_id` |
+| Postgres message | 5 shown sources and selected `prompt_id` persisted |
+| Upload | HTTP 202; unique PDF was searchable after a 12-second wait and appeared as source `[1]` with score 0.849 |
+| Docker | app/Postgres/Redis/Qdrant healthy; Phoenix and Telegram bot running |
+
+Telegram token is valid and aiogram polling started. An interactive user message and
+feedback-button click were not performed because no dedicated test recipient was
+available; this path is covered by fake-bot tests. The local host port 8000 was
+already occupied by another project, so live HTTP checks ran inside the compose
+network; the app container healthcheck uses its own port 8000 and passed.
+
+The image pins `torch==2.7.1+cpu` before installing the remaining requirements,
+preventing a CUDA dependency download on the CPU runtime. The git-ignored host
+`.cache/embeddings` directory is mounted into app and offline ingest so both
+contours reuse the same model cache.

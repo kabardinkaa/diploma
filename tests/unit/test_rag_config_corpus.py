@@ -8,6 +8,8 @@ from app.core.config import LLMSettings, Settings
 def test_rag_settings_are_read_from_environment(monkeypatch) -> None:
     monkeypatch.setenv("RAG_DATA_DIR", "custom/rag")
     monkeypatch.setenv("RAG_COLLECTION", "custom_llama")
+    monkeypatch.setenv("RAG_PRODUCTION_COLLECTION", "custom_production")
+    monkeypatch.setenv("RAG_DOCSTORE_PATH", "custom/docstore.json")
     monkeypatch.setenv("RAG_BAREMETAL_COLLECTION", "custom_bare")
     monkeypatch.setenv("RAG_CHUNK_SIZE", "256")
     monkeypatch.setenv("RAG_CHUNK_OVERLAP", "32")
@@ -26,6 +28,8 @@ def test_rag_settings_are_read_from_environment(monkeypatch) -> None:
 
     assert settings.rag_data_dir == Path("custom/rag")
     assert settings.rag_collection == "custom_llama"
+    assert settings.rag_production_collection == "custom_production"
+    assert settings.rag_docstore_path == Path("custom/docstore.json")
     assert settings.rag_baremetal_collection == "custom_bare"
     assert settings.rag_chunk_size == 256
     assert settings.rag_chunk_overlap == 32

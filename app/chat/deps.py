@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 
 from app.chat.repositories.json_repo import JsonChatRepository
 from app.chat.repositories.postgres_repo import PostgresChatRepository
@@ -42,12 +42,14 @@ def get_chat_service(
     llm_service: LLMServiceDep,
     moderation_service: ModerationServiceDep,
     settings: SettingsDep,
+    request: Request,
 ) -> ChatService:
     return ChatService(
         repository=repository,
         llm_service=llm_service,
         moderation_service=moderation_service,
         context_window=settings.chat_context_window,
+        rag_service=getattr(request.app.state, "rag_service", None),
     )
 
 

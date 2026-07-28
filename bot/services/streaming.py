@@ -20,6 +20,24 @@ class StreamResult:
         return bool(self.text.strip())
 
 
+def with_sources(text: str, sources: list[dict]) -> str:
+    unique: list[str] = []
+    for source in sources:
+        file_name = str(source.get("file_name") or "").strip()
+        if file_name and file_name not in unique:
+            unique.append(file_name)
+        if len(unique) == 5:
+            break
+    if not unique:
+        return text[:TELEGRAM_MESSAGE_LIMIT]
+    block = "\n\nИсточники:\n" + "\n".join(
+        f"[{index}] {file_name}"
+        for index, file_name in enumerate(unique, start=1)
+    )
+    available = TELEGRAM_MESSAGE_LIMIT - len(block)
+    return text[:available].rstrip() + block
+
+
 async def safe_edit_message(
     message: Message,
     text: str,

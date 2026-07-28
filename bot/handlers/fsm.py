@@ -9,6 +9,7 @@ from bot.handlers.commands import get_owner_external_id
 from bot.keyboards.feedback import feedback_kb
 from bot.keyboards.inline import TOPICS, topics_kb
 from bot.services.backend_client import BackendClient
+from bot.services.streaming import with_sources
 from bot.states import AskFlow
 
 
@@ -100,6 +101,10 @@ async def ask_question(
 
             if buffer.strip():
                 await safe_edit_text(answer_message, buffer)
+
+        if buffer.strip() and backend.last_sources:
+            buffer = with_sources(buffer, backend.last_sources)
+            await safe_edit_text(answer_message, buffer)
 
         if buffer.strip() and backend.last_message_id is not None:
             await answer_message.edit_reply_markup(

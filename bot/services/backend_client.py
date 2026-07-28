@@ -21,6 +21,8 @@ class BackendClient:
         self.internal_token = internal_token
         self._chat_cache: dict[tuple[str, str], UUID] = {}
         self.last_message_id: UUID | None = None
+        self.last_sources: list[dict] = []
+        self.last_rag_meta: dict = {}
 
     async def get_or_create_chat(
         self,
@@ -58,6 +60,8 @@ class BackendClient:
         media: bytes | None = None,
         mime: str | None = None,
     ) -> AsyncIterator[str]:
+        self.last_sources = []
+        self.last_rag_meta = {}
         multipart_parts: dict[str, tuple] = {
             "content": (None, content),
         }
@@ -107,6 +111,14 @@ class BackendClient:
                     message_id = payload.get("message_id")
                     self.last_message_id = UUID(message_id) if message_id else None
                     return
+
+                elif event_type == "sources":
+                    self.last_sources = list(payload.get("sources") or [])
+                    self.last_rag_meta = {
+                        "top_score": payload.get("top_score", 0.0),
+                        "confident": bool(payload.get("confident")),
+                        "condensed_query": payload.get("condensed_query"),
+                    }
 
                 elif event_type == "error":
                     message = payload.get(

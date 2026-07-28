@@ -19,7 +19,10 @@ aiofiles==25.1.0
 aiogram>=3,<4
 python-multipart
 pypdf
+pymupdf>=1.24,<2
 python-docx
+docx2txt==0.9
+reportlab
 faster-whisper
 asyncpg==0.30.0
 PyYAML==6.0.2
