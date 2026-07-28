@@ -85,6 +85,23 @@ class Settings(BaseSettings):
     qdrant_api_key: SecretStr | None = Field(default=None, alias="QDRANT_API_KEY")
     qdrant_collection: str = Field(default="documents", alias="QDRANT_COLLECTION")
     embedding_dim: int = Field(default=768, ge=1, alias="EMBEDDING_DIM")
+    rag_data_dir: Path = Field(
+        default=Path("data/rag-block-03"),
+        alias="RAG_DATA_DIR",
+    )
+    rag_collection: str = Field(default="rag_block_03", alias="RAG_COLLECTION")
+    rag_baremetal_collection: str = Field(
+        default="rag_block_03_baremetal",
+        alias="RAG_BAREMETAL_COLLECTION",
+    )
+    rag_chunk_size: int = Field(default=512, ge=32, alias="RAG_CHUNK_SIZE")
+    rag_chunk_overlap: int = Field(default=64, ge=0, alias="RAG_CHUNK_OVERLAP")
+    rag_similarity_top_k: int = Field(
+        default=3,
+        ge=1,
+        alias="RAG_SIMILARITY_TOP_K",
+    )
+    rag_min_score: float = Field(default=0.82, ge=0.0, le=1.0, alias="RAG_MIN_SCORE")
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
@@ -106,6 +123,10 @@ class Settings(BaseSettings):
     )
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
+
+    def model_post_init(self, __context: object) -> None:
+        if self.rag_chunk_overlap >= self.rag_chunk_size:
+            raise ValueError("RAG_CHUNK_OVERLAP must be smaller than RAG_CHUNK_SIZE")
 
 @lru_cache
 def get_settings() -> Settings:

@@ -22,9 +22,10 @@ from redis.asyncio import Redis
 from app.core.config import get_settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.admin.routes import router as admin_router
-from app.routers import chat, health, models
+from app.routers import chat, health, models, rag
 from app.chat.routes import router as chat_history_router
 from app.services.vector_store import VectorStore
+from app.services.rag import RAGService
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = structlog.get_logger("llm-service")
@@ -70,12 +71,19 @@ async def lifespan(app: FastAPI):
     # Он нужен, чтобы ДЗ работало даже без запущенного Redis.
     app.state.cache = {}
     app.state.vector_store = VectorStore(settings)
+    app.state.rag_service = RAGService(
+        settings,
+        async_qdrant_client=app.state.vector_store.client,
+        openai_client=app.state.openai,
+    )
 
     try:
         await app.state.vector_store.ensure_collection()
+        await app.state.rag_service.build()
         logger.info("Application startup complete")
         yield
     finally:
+        await app.state.rag_service.close()
         await app.state.vector_store.close()
         await app.state.openai.close()
 
@@ -193,5 +201,6 @@ async def validation_error_handler(_: Request, exc: RequestValidationError) -> J
 app.include_router(health.router)
 app.include_router(models.router)
 app.include_router(chat.router)
+app.include_router(rag.router)
 app.include_router(admin_router)
 app.include_router(chat_history_router)

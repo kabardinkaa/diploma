@@ -721,3 +721,16 @@ Qdrant dashboard доступен по адресу `http://localhost:6333/dashb
 ```powershell
 python scripts/vector_store_smoke.py --local
 ```
+
+## Домашнее задание 5.3 - RAG с LlamaIndex
+
+Добавлены основная LlamaIndex RAG-реализация и совместимая bare-metal версия на
+одном учебном корпусе из `data/rag-block-03/`. Используются отдельные коллекции
+`rag_block_03` и `rag_block_03_baremetal`; коллекция Б5.2 `documents` не
+изменяется.
+
+- API: `POST /rag/query`
+- LlamaIndex CLI: `python -m app.services.rag`
+- Bare-metal CLI: `python -m app.services.rag_baremetal`
+- Сравнительный smoke: `python scripts/rag_smoke.py`
+- Архитектура и фактические результаты: `docs/rag.md`
