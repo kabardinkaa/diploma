@@ -24,6 +24,7 @@ from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTi
 from app.admin.routes import router as admin_router
 from app.routers import chat, health, models
 from app.chat.routes import router as chat_history_router
+from app.services.vector_store import VectorStore
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = structlog.get_logger("llm-service")
@@ -68,12 +69,14 @@ async def lifespan(app: FastAPI):
     # In-memory cache для локального MVP.
     # Он нужен, чтобы ДЗ работало даже без запущенного Redis.
     app.state.cache = {}
-
-    logger.info("Application startup complete")
+    app.state.vector_store = VectorStore(settings)
 
     try:
+        await app.state.vector_store.ensure_collection()
+        logger.info("Application startup complete")
         yield
     finally:
+        await app.state.vector_store.close()
         await app.state.openai.close()
 
         if getattr(app.state, "redis", None) is not None:

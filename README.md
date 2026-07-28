@@ -692,3 +692,32 @@ Smoke-тест выводит модель, размерность и норму
 с загрузкой модели занял 183.7152 с, повторный вызов из кеша - 0.0002 с;
 релевантный документ оказался выше нерелевантного во всех 5 из 5 пар.
 Первый запуск скачивает веса модели и зависит от скорости сети.
+
+## Домашнее задание 5.2 - Векторные базы данных
+
+В проект добавлен self-hosted Qdrant с production-коллекцией `documents`:
+
+- `intfloat/multilingual-e5-base`, 768 измерений;
+- метрика COSINE и HNSW `m=16`, `ef_construct=100`;
+- 128 уникальных учебных документов техподдержки;
+- async-обёртка `app/services/vector_store.py`;
+- идемпотентная загрузка `scripts/load_to_qdrant.py`;
+- эксперименты `scripts/vector_store_smoke.py`;
+- отчёт `docs/vector_store.md`.
+
+Настройте `QDRANT_API_KEY` в `.env`, затем запустите:
+
+```powershell
+docker compose up -d qdrant
+docker compose ps
+python scripts/load_to_qdrant.py
+python scripts/load_to_qdrant.py
+python scripts/vector_store_smoke.py
+```
+
+Qdrant dashboard доступен по адресу `http://localhost:6333/dashboard`.
+Для проверки без Docker можно выполнить:
+
+```powershell
+python scripts/vector_store_smoke.py --local
+```

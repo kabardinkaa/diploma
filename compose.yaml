@@ -17,8 +17,12 @@ services:
       EMBEDDING_MODEL: intfloat/multilingual-e5-base
       EMBEDDING_BATCH_SIZE: 32
       EMBEDDING_CACHE_DIR: /app/.cache/embeddings
-      NO_PROXY: localhost,127.0.0.1,redis,app,phoenix,postgres
-      no_proxy: localhost,127.0.0.1,redis,app,phoenix,postgres
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: documents
+      EMBEDDING_DIM: 768
+      NO_PROXY: localhost,127.0.0.1,redis,app,phoenix,postgres,qdrant
+      no_proxy: localhost,127.0.0.1,redis,app,phoenix,postgres,qdrant
     volumes:
       - embedding-cache:/app/.cache/embeddings
     depends_on:
@@ -28,6 +32,8 @@ services:
         condition: service_healthy
       phoenix:
         condition: service_started
+      qdrant:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -74,6 +80,27 @@ services:
       retries: 5
     restart: unless-stopped
 
+  qdrant:
+    image: qdrant/qdrant:v1.14.0
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c ': > /dev/tcp/127.0.0.1/6333'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   redis:
     image: redis:7.4-alpine
     volumes:
@@ -99,5 +126,6 @@ services:
 volumes:
   embedding-cache: {}
   pg-data: {}
+  qdrant-storage: {}
   redis_data: {}
   phoenix-data: {}

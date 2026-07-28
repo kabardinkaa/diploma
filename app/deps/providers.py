@@ -5,6 +5,7 @@ from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.services.llm import LLMService
+from app.services.vector_store import VectorStore
 
 
 def get_openai(request: Request):
@@ -13,6 +14,10 @@ def get_openai(request: Request):
 
 def get_cache(request: Request) -> Any:
     return request.app.state.cache
+
+
+def get_vector_store(request: Request) -> VectorStore:
+    return request.app.state.vector_store
 
 
 def get_llm_service(
@@ -30,3 +35,4 @@ def get_llm_service(
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 LLMServiceDep = Annotated[LLMService, Depends(get_llm_service)]
 CacheDep = Annotated[Any, Depends(get_cache)]
+VectorStoreDep = Annotated[VectorStore, Depends(get_vector_store)]

@@ -81,6 +81,10 @@ class Settings(BaseSettings):
         default=Path(".cache/embeddings"),
         alias="EMBEDDING_CACHE_DIR",
     )
+    qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
+    qdrant_api_key: SecretStr | None = Field(default=None, alias="QDRANT_API_KEY")
+    qdrant_collection: str = Field(default="documents", alias="QDRANT_COLLECTION")
+    embedding_dim: int = Field(default=768, ge=1, alias="EMBEDDING_DIM")
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
