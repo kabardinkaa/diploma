@@ -128,17 +128,40 @@ class Settings(BaseSettings):
         alias="RAG_GENERATION_MODEL",
     )
 
-    eval_judge_provider: Literal["openai"] = Field(
-        default="openai",
+    eval_judge_provider: Literal["openai", "local"] = Field(
+        default="local",
         alias="EVAL_JUDGE_PROVIDER",
     )
     eval_judge_model: str = Field(
-        default="openai/gpt-5.4-mini",
+        default="local-qwen-judge",
         alias="EVAL_JUDGE_MODEL",
     )
+    eval_judge_base_url: str = Field(
+        default="http://127.0.0.1:1234/v1",
+        alias="EVAL_JUDGE_BASE_URL",
+    )
+    eval_judge_api_key: SecretStr = Field(
+        default=SecretStr("lm-studio"),
+        alias="EVAL_JUDGE_API_KEY",
+    )
+    eval_generation_model: str = Field(
+        default="local-qwen-judge",
+        alias="EVAL_GENERATION_MODEL",
+    )
     eval_embedding_model: str = Field(
-        default="openai/text-embedding-3-small",
+        default="intfloat/multilingual-e5-base",
         alias="EVAL_EMBEDDING_MODEL",
+    )
+    eval_request_timeout: float = Field(
+        default=300.0,
+        gt=0,
+        alias="EVAL_REQUEST_TIMEOUT",
+    )
+    eval_judge_max_tokens: int = Field(
+        default=4096,
+        ge=256,
+        le=8192,
+        alias="EVAL_JUDGE_MAX_TOKENS",
     )
     eval_golden_path: Path = Field(
         default=Path("tests/eval/golden_dataset.json"),

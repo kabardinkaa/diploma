@@ -55,6 +55,15 @@ def main() -> None:
     for metric_class in metric_classes:
         print(f"- {metric_class.__name__}: {inspect.signature(metric_class.ascore)}")
     print(f"- discrete_metric: {inspect.signature(discrete_metric)}")
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    print("Evaluation runtime:")
+    print(f"- provider: {settings.eval_judge_provider}")
+    print(f"- judge model: {settings.eval_judge_model}")
+    print(f"- base URL: {settings.eval_judge_base_url}")
+    print(f"- embedding model: {settings.eval_embedding_model}")
+    print(f"- judge max tokens: {settings.eval_judge_max_tokens}")
     print("Evaluation imports: OK")
 
 

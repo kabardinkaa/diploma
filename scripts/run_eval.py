@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -12,6 +13,9 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 import pandas as pd
 
@@ -79,7 +83,7 @@ async def evaluate(
     client = build_eval_client(settings)
     service = RAGService(settings, openai_client=client)
     judge = build_judge(settings, client)
-    embeddings = build_evaluator_embeddings(settings, client)
+    embeddings = build_evaluator_embeddings(settings)
     metrics = build_metrics(judge, embeddings)
     semaphore = asyncio.Semaphore(settings.eval_concurrency)
 
@@ -126,6 +130,7 @@ async def evaluate(
         return await asyncio.gather(*(one(row) for row in golden_rows))
     finally:
         await service.close()
+        embeddings.close()
         await client.close()
 
 
@@ -139,7 +144,9 @@ async def run(args: argparse.Namespace) -> None:
             raise ValueError("--limit must be positive")
         golden_rows = golden_rows[: args.limit]
     csv_path, aggregate_path = result_paths(args.results_dir, args.label)
-    eval_settings = variant.apply(base_settings)
+    eval_settings = variant.apply(base_settings).model_copy(
+        update={"rag_generation_model": base_settings.eval_generation_model}
+    )
 
     summary = {
         "question_count": len(golden_rows),
@@ -162,8 +169,11 @@ async def run(args: argparse.Namespace) -> None:
             "timestamp": datetime.now(UTC).isoformat(),
             "label": args.label,
             "dataset_sha256": dataset_sha256(args.golden),
-            "production_model": eval_settings.rag_generation_model,
+            "production_model": base_settings.rag_generation_model,
+            "evaluation_generation_model": eval_settings.rag_generation_model,
             "judge_model": eval_settings.eval_judge_model,
+            "judge_provider": eval_settings.eval_judge_provider,
+            "judge_base_url": eval_settings.eval_judge_base_url,
             "evaluator_embedding_model": eval_settings.eval_embedding_model,
             "rag_embedding_model": eval_settings.embedding_model,
             "chunk_config": {

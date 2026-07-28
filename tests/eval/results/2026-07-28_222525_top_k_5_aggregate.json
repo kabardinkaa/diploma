@@ -1,0 +1,34 @@
+{
+  "row_count": 30,
+  "failed_count": 0,
+  "mean_metrics": {
+    "faithfulness": 0.9797474747474747,
+    "answer_relevancy": 0.9167428262294706,
+    "context_precision": 0.9638888888068055,
+    "context_recall": 1.0,
+    "has_citation": 1.0
+  },
+  "latency_ms": {
+    "avg": 2759.6639999999998,
+    "p50": 2547.13,
+    "p95": 4821.388499999997
+  },
+  "timestamp": "2026-07-28T22:31:56.760116+00:00",
+  "label": "top_k_5",
+  "dataset_sha256": "424facc7e935d7c88152e0ef3010f79515fe6c796680e707d515f3f6ea8fea92",
+  "production_model": "openai/gpt-5.4-mini",
+  "evaluation_generation_model": "local-qwen-judge",
+  "judge_model": "local-qwen-judge",
+  "judge_provider": "local",
+  "judge_base_url": "http://127.0.0.1:1234/v1",
+  "evaluator_embedding_model": "intfloat/multilingual-e5-base",
+  "rag_embedding_model": "intfloat/multilingual-e5-base",
+  "chunk_config": {
+    "strategy": "recursive",
+    "size": 512,
+    "overlap": 64
+  },
+  "collection": "corporate_rag",
+  "top_k": 5,
+  "reranker": false
+}

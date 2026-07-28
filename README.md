@@ -778,13 +778,13 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## Домашнее задание 5.6 - Оценка качества и мониторинг RAG
 
-Добавлен offline evaluation-контур: curated golden dataset из 30 записей,
-RAGAS 0.4 с метриками Faithfulness, AnswerRelevancy, ContextPrecision,
-ContextRecall и кастомной `has_citation`, а также Phoenix/OpenInference tracing
-для OpenAI и LlamaIndex. Два изолированных A/B-сценария сравнивают chunk size
-`512`/`256` и top-K `10`/`5`; per-row CSV и aggregate JSON получают timestamp.
+Добавлен zero-cost evaluation-контур: 42 raw TestsetGenerator-пары, curated
+golden dataset из 30 записей, локальный Qwen3.5-35B-A3B judge через LM Studio,
+локальные E5 embeddings и RAGAS 0.4 с пятью метриками. Два завершённых A/B
+сценария сравнивают chunk size `512`/`256` и top-K `10`/`5`; каждый сохраняет
+timestamped per-row CSV и aggregate JSON. Winner evaluation: top-K `5`.
 
-Полный протокол, текущий provider blocker и точные команды:
+Полный протокол, фактические метрики, failure analysis и точные команды:
 [docs/rag_evaluation.md](docs/rag_evaluation.md).
 
 ```powershell

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -10,13 +11,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from openai import AsyncOpenAI
-from ragas.embeddings import OpenAIEmbeddings
-from ragas.llms import llm_factory
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 from ragas.run_config import RunConfig
 from ragas.testset import TestsetGenerator
 
 from app.core.config import Settings, get_settings
+from app.eval.metrics import (
+    build_eval_client,
+    build_evaluator_embeddings,
+    build_judge,
+)
 from app.services.ingestion import IngestionService
 
 
@@ -68,25 +74,15 @@ async def generate(args: argparse.Namespace) -> None:
 
     settings = get_settings()
     judge_model = args.judge_model or settings.eval_judge_model
-    client = AsyncOpenAI(
-        api_key=settings.llm.api_key.get_secret_value(),
-        base_url=settings.llm.base_url,
-        timeout=settings.llm.request_timeout,
-        max_retries=settings.llm.max_retries,
-    )
+    if judge_model != settings.eval_judge_model:
+        settings = settings.model_copy(update={"eval_judge_model": judge_model})
+    client = build_eval_client(settings)
     documents = await load_documents(settings, args.corpus)
     if not documents:
         raise RuntimeError(f"No documents parsed from {args.corpus}")
 
-    judge = llm_factory(
-        judge_model,
-        provider=settings.eval_judge_provider,
-        client=client,
-    )
-    embeddings = OpenAIEmbeddings(
-        client=client,
-        model=settings.eval_embedding_model,
-    )
+    judge = build_judge(settings, client)
+    embeddings = build_evaluator_embeddings(settings)
     generator = TestsetGenerator(
         llm=judge,
         embedding_model=embeddings,
@@ -99,20 +95,28 @@ async def generate(args: argparse.Namespace) -> None:
             "embedding_model": settings.eval_embedding_model,
         }
     )
-    testset = await asyncio.to_thread(
-        generator.generate_with_llamaindex_docs,
-        documents,
-        testset_size=args.size,
-        run_config=RunConfig(
-            timeout=settings.llm.request_timeout,
-            max_retries=settings.llm.max_retries,
-            max_workers=settings.eval_concurrency,
+    try:
+        testset = await asyncio.to_thread(
+            generator.generate_with_llamaindex_docs,
+            documents,
+            testset_size=args.size,
+            run_config=RunConfig(
+                timeout=settings.eval_request_timeout,
+                max_retries=settings.llm.max_retries,
+                max_workers=settings.eval_concurrency,
+            ),
         )
-    )
-    frame = testset.to_pandas()
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_csv(args.output, index=False)
-    print({"output": str(args.output), "rows": len(frame)})
+        frame = testset.to_pandas()
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_csv(args.output, index=False)
+        print({"output": str(args.output), "rows": len(frame)})
+    finally:
+        embeddings.close()
+        try:
+            await client.close()
+        except RuntimeError as exc:
+            if "Event loop is closed" not in str(exc):
+                raise
 
 
 def main() -> None:

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
-from ragas.embeddings import OpenAIEmbeddings
+from ragas.embeddings import BaseRagasEmbedding
 from ragas.llms import llm_factory
 from ragas.metrics import discrete_metric
 from ragas.metrics.collections import (
@@ -15,6 +16,7 @@ from ragas.metrics.collections import (
 )
 
 from app.core.config import Settings
+from app.services.embeddings import EmbeddingService
 
 
 class CitationDecision(BaseModel):
@@ -24,29 +26,81 @@ class CitationDecision(BaseModel):
 
 def build_eval_client(settings: Settings) -> AsyncOpenAI:
     return AsyncOpenAI(
-        api_key=settings.llm.api_key.get_secret_value(),
-        base_url=settings.llm.base_url,
-        timeout=settings.llm.request_timeout,
+        api_key=settings.eval_judge_api_key.get_secret_value(),
+        base_url=settings.eval_judge_base_url,
+        timeout=settings.eval_request_timeout,
         max_retries=settings.llm.max_retries,
     )
 
 
 def build_judge(settings: Settings, client: AsyncOpenAI) -> Any:
+    if settings.eval_judge_provider == "local":
+        import instructor
+        from ragas.llms import InstructorLLM
+        from ragas.llms.base import InstructorModelArgs
+
+        patched_client = instructor.from_openai(
+            client,
+            mode=instructor.Mode.JSON_SCHEMA,
+        )
+        return InstructorLLM(
+            client=patched_client,
+            model=settings.eval_judge_model,
+            provider="openai",
+            model_args=InstructorModelArgs(
+                temperature=0.01,
+                top_p=0.1,
+                max_tokens=settings.eval_judge_max_tokens,
+            ),
+        )
     return llm_factory(
         settings.eval_judge_model,
-        provider=settings.eval_judge_provider,
+        provider="openai",
         client=client,
     )
+
+
+class LocalE5Embeddings(BaseRagasEmbedding):
+    """RAGAS adapter over the project's local cached E5 embedding service."""
+
+    def __init__(self, settings: Settings) -> None:
+        super().__init__()
+        self.model = settings.eval_embedding_model
+        self._service = EmbeddingService(
+            model_name=self.model,
+            batch_size=settings.embedding_batch_size,
+            cache_dir=settings.embedding_cache_dir,
+        )
+
+    def embed_text(self, text: str, **kwargs: Any) -> list[float]:
+        return self._service.embed_texts([text])[0]
+
+    async def aembed_text(self, text: str, **kwargs: Any) -> list[float]:
+        return await asyncio.to_thread(self.embed_text, text)
+
+    def embed_texts(
+        self,
+        texts: list[str],
+        **kwargs: Any,
+    ) -> list[list[float]]:
+        return self._service.embed_texts(texts)
+
+    async def aembed_texts(
+        self,
+        texts: list[str],
+        **kwargs: Any,
+    ) -> list[list[float]]:
+        return await asyncio.to_thread(self.embed_texts, texts)
+
+    def close(self) -> None:
+        self._service.close()
 
 
 def build_evaluator_embeddings(
     settings: Settings,
-    client: AsyncOpenAI,
-) -> OpenAIEmbeddings:
-    return OpenAIEmbeddings(
-        client=client,
-        model=settings.eval_embedding_model,
-    )
+    client: AsyncOpenAI | None = None,
+) -> LocalE5Embeddings:
+    return LocalE5Embeddings(settings)
 
 
 def make_has_citation(llm: Any) -> Any:

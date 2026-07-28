@@ -14,6 +14,7 @@ eval = [
     "anthropic>=0.40",
     "pandas>=2",
     "arize-phoenix>=5",
+    "instructor>=1.15,<2",
     "rapidfuzz>=3",
 ]
 tracing = [

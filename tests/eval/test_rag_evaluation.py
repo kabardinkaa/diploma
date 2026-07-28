@@ -35,6 +35,15 @@ def test_golden_dataset_contract_and_stable_sha() -> None:
     assert len(dataset_sha256(GOLDEN_PATH)) == 64
 
 
+def test_local_eval_defaults_do_not_change_production_model() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.eval_judge_provider == "local"
+    assert settings.eval_judge_model == "local-qwen-judge"
+    assert settings.eval_embedding_model == "intfloat/multilingual-e5-base"
+    assert settings.rag_generation_model == "openai/gpt-5.4-mini"
+
+
 def test_result_paths_include_timestamp_and_label() -> None:
     csv_path, aggregate_path = result_paths(
         Path("results"),
