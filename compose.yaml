@@ -14,6 +14,8 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/diploma
       REDIS_URL: redis://redis:6379/0
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      RAG_TRACING_ENABLED: ${RAG_TRACING_ENABLED:-true}
+      RAG_GENERATION_MODEL: ${RAG_GENERATION_MODEL:-openai/gpt-5.4-mini}
       EMBEDDING_MODEL: intfloat/multilingual-e5-base
       EMBEDDING_BATCH_SIZE: 32
       EMBEDDING_CACHE_DIR: /app/.cache/embeddings
@@ -70,6 +72,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        INSTALL_EXTRAS: tracing
     image: llm-service:v1
     command: ["python", "scripts/ingest.py", "/app/data", "--mode", "incremental"]
     profiles: ["tools"]

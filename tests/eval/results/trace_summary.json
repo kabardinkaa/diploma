@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-07-28T21:29:15.394300+00:00",
+  "queries_sent": 24,
+  "successful_requests": 3,
+  "traces_found": 24,
+  "spans_found": 210,
+  "retrieval_spans": 72,
+  "llm_spans": 42,
+  "embedding_spans": 72,
+  "errors": {
+    "HTTPStatusError: HTTP 500 from backend; app logs confirm upstream OpenRouter HTTP 402": 21
+  }
+}

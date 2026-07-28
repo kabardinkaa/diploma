@@ -2,6 +2,8 @@
 
 FROM python:3.12-slim-bookworm AS builder
 
+ARG INSTALL_EXTRAS=tracing
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV UV_COMPILE_BYTECODE=1
@@ -15,7 +17,7 @@ WORKDIR /app
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-COPY requirements.txt .
+COPY requirements.txt pyproject.toml ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
@@ -29,6 +31,10 @@ COPY app ./app
 COPY bot ./bot
 COPY scripts ./scripts
 COPY data ./data
+COPY tests/eval/golden_dataset.json ./tests/eval/golden_dataset.json
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -n "$INSTALL_EXTRAS" ]; then uv pip install ".[${INSTALL_EXTRAS}]"; fi
 
 
 FROM python:3.12-slim-bookworm AS runtime

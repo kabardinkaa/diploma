@@ -775,3 +775,20 @@ docker compose up -d --build
 python scripts/ingest.py data/
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+## Домашнее задание 5.6 - Оценка качества и мониторинг RAG
+
+Добавлен offline evaluation-контур: curated golden dataset из 30 записей,
+RAGAS 0.4 с метриками Faithfulness, AnswerRelevancy, ContextPrecision,
+ContextRecall и кастомной `has_citation`, а также Phoenix/OpenInference tracing
+для OpenAI и LlamaIndex. Два изолированных A/B-сценария сравнивают chunk size
+`512`/`256` и top-K `10`/`5`; per-row CSV и aggregate JSON получают timestamp.
+
+Полный протокол, текущий provider blocker и точные команды:
+[docs/rag_evaluation.md](docs/rag_evaluation.md).
+
+```powershell
+pip install ".[eval,tracing]"
+python scripts/verify_eval.py
+python scripts/run_eval.py --label baseline --dry-run
+```

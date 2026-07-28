@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app.core.config import Settings, get_settings
+from app.observability.tracing import set_span_attributes, trace_span
 from app.services.chunking import build_e5_embedding
 from app.services.rag_common import FALLBACK_ANSWER
 from app.services.reranker import Reranker
@@ -278,30 +279,51 @@ class RAGService:
         self,
         question: str,
         history: Sequence[Any] | None,
+        *,
+        retriever: Any | None = None,
     ) -> dict[str, Any]:
         search_query, condensed = await self._condense(question, history)
         started = time.perf_counter()
-        try:
-            nodes = list(await self._retriever.aretrieve(search_query))
-        except Exception:
-            logger.warning("rag.retrieve_failed", exc_info=True)
-            nodes = []
-        candidates = [self._candidate(item) for item in nodes]
-        top_score = max(
-            (candidate["dense_score"] for candidate in candidates),
-            default=0.0,
-        )
-        candidates = self._rerank_candidates(search_query, candidates)
-        confident = bool(candidates) and top_score >= self.settings.rag_min_score
-        return {
-            "search_query": search_query,
-            "condensed": condensed,
-            "candidates": candidates,
-            "sources": self._sources(candidates) if confident else [],
-            "top_score": round(top_score, 3),
-            "confident": confident,
-            "retrieve_ms": round((time.perf_counter() - started) * 1000, 2),
-        }
+        with trace_span("rag.retrieve") as span:
+            try:
+                active_retriever = retriever or self._retriever
+                nodes = list(await active_retriever.aretrieve(search_query))
+            except Exception:
+                logger.warning("rag.retrieve_failed", exc_info=True)
+                nodes = []
+            candidates = [self._candidate(item) for item in nodes]
+            top_score = max(
+                (candidate["dense_score"] for candidate in candidates),
+                default=0.0,
+            )
+            candidates = self._rerank_candidates(search_query, candidates)
+            confident = bool(candidates) and top_score >= self.settings.rag_min_score
+            set_span_attributes(
+                span,
+                **{
+                    "rag.top_score": top_score,
+                    "rag.source_count": len(candidates),
+                    "rag.confident": confident,
+                    "rag.top_k": self.retrieval_top_k,
+                    "rag.reranker_enabled": getattr(
+                        self.settings,
+                        "rag_reranker_enabled",
+                        False,
+                    ),
+                    "rag.retrieved_scores": [
+                        candidate["dense_score"] for candidate in candidates
+                    ],
+                },
+            )
+            return {
+                "search_query": search_query,
+                "condensed": condensed,
+                "candidates": candidates,
+                "sources": self._sources(candidates) if confident else [],
+                "top_score": round(top_score, 3),
+                "confident": confident,
+                "retrieve_ms": round((time.perf_counter() - started) * 1000, 2),
+            }
 
     @staticmethod
     def _numbered_context(candidates: Sequence[dict[str, Any]], maximum: int) -> str:
@@ -311,6 +333,30 @@ class RAGService:
         )
 
     async def stream_answer(
+        self,
+        question: str,
+        history: Sequence[Any] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        with trace_span("rag.query") as span:
+            async for event in self._stream_answer_impl(question, history):
+                if event["type"] == "sources":
+                    set_span_attributes(
+                        span,
+                        **{
+                            "rag.top_score": event["top_score"],
+                            "rag.source_count": len(event["sources"]),
+                            "rag.confident": event["confident"],
+                            "rag.top_k": self.retrieval_top_k,
+                            "rag.reranker_enabled": getattr(
+                                self.settings,
+                                "rag_reranker_enabled",
+                                False,
+                            ),
+                        },
+                    )
+                yield event
+
+    async def _stream_answer_impl(
         self,
         question: str,
         history: Sequence[Any] | None = None,
@@ -335,19 +381,24 @@ class RAGService:
                 },
             ]
             generate_started = time.perf_counter()
-            stream = await self._openai_client.chat.completions.create(
-                model=self.settings.llm.default_model,
-                temperature=0.1,
-                max_tokens=500,
-                messages=messages,
-                stream=True,
-            )
-            chunks: list[str] = []
-            async for chunk in stream:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    chunks.append(delta)
-                    yield {"type": "token", "delta": delta}
+            with trace_span("rag.generate"):
+                stream = await self._openai_client.chat.completions.create(
+                    model=getattr(
+                        self.settings,
+                        "rag_generation_model",
+                        self.settings.llm.default_model,
+                    ),
+                    temperature=0.1,
+                    max_tokens=500,
+                    messages=messages,
+                    stream=True,
+                )
+                chunks: list[str] = []
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        chunks.append(delta)
+                        yield {"type": "token", "delta": delta}
             answer = normalize_citations(
                 "".join(chunks).strip(),
                 {source["id"] for source in retrieval["sources"]},
@@ -394,6 +445,70 @@ class RAGService:
             "top_score": final["top_score"],
             "confident": final["confident"],
             "sources": final["sources"],
+        }
+
+    async def evaluate_inputs(
+        self,
+        question: str,
+        *,
+        top_k: int | None = None,
+    ) -> dict[str, Any]:
+        if not self._built:
+            raise RuntimeError(
+                "RAGService.build() must be called before evaluate_inputs()"
+            )
+        started = time.perf_counter()
+        retriever = self._retriever
+        if top_k is not None and top_k != self.retrieval_top_k:
+            retriever = self._index.as_retriever(similarity_top_k=top_k)
+
+        retrieval = await self._retrieve(
+            question,
+            history=None,
+            retriever=retriever,
+        )
+
+        candidates = retrieval["candidates"]
+        if not retrieval["confident"]:
+            response = FALLBACK_ANSWER
+        else:
+            maximum = getattr(self.settings, "rag_max_sources", 5)
+            context = self._numbered_context(candidates, maximum)
+            with trace_span("rag.generate"):
+                completion = await self._openai_client.chat.completions.create(
+                    model=getattr(
+                        self.settings,
+                        "rag_generation_model",
+                        self.settings.llm.default_model,
+                    ),
+                    temperature=0.1,
+                    max_tokens=500,
+                    messages=[
+                        {"role": "system", "content": RAG_GENERATION_PROMPT},
+                        {
+                            "role": "user",
+                            "content": f"Контекст:\n{context}\n\nВопрос:\n{question}",
+                        },
+                    ],
+                )
+            response = normalize_citations(
+                (completion.choices[0].message.content or "").strip(),
+                set(range(1, min(len(candidates), maximum) + 1)),
+            )
+
+        return {
+            "user_input": question,
+            "response": response,
+            "retrieved_contexts": [candidate["text"] for candidate in candidates],
+            "retrieved_doc_ids": [
+                candidate["file_name"] for candidate in candidates
+            ],
+            "retrieved_scores": [
+                candidate["dense_score"] for candidate in candidates
+            ],
+            "top_score": retrieval["top_score"],
+            "confident": retrieval["confident"],
+            "latency_ms": round((time.perf_counter() - started) * 1000, 2),
         }
 
     async def points_count(self) -> int:

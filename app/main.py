@@ -50,7 +50,7 @@ class SafeJSONResponse(JSONResponse):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    setup_tracing()
+    setup_tracing(enabled=settings.rag_tracing_enabled)
 
     client_kwargs = {
         "api_key": settings.llm.api_key.get_secret_value(),
