@@ -114,7 +114,7 @@ class Settings(BaseSettings):
         default="recursive",
         alias="RAG_CHUNKING_STRATEGY",
     )
-    rag_retrieval_top_k: int = Field(default=10, ge=10, alias="RAG_RETRIEVAL_TOP_K")
+    rag_retrieval_top_k: int = Field(default=10, ge=1, alias="RAG_RETRIEVAL_TOP_K")
     rag_reranker_enabled: bool = Field(default=False, alias="RAG_RERANKER_ENABLED")
     rag_reranker_model: str = Field(
         default="BAAI/bge-reranker-v2-m3",
@@ -123,6 +123,51 @@ class Settings(BaseSettings):
     rag_rerank_top_n: int = Field(default=5, ge=1, alias="RAG_RERANK_TOP_N")
     rag_condense_enabled: bool = Field(default=True, alias="RAG_CONDENSE_ENABLED")
     rag_max_sources: int = Field(default=5, ge=1, le=10, alias="RAG_MAX_SOURCES")
+    rag_generation_model: str = Field(
+        default="openai/gpt-5.4-mini",
+        alias="RAG_GENERATION_MODEL",
+    )
+
+    eval_judge_provider: Literal["openai"] = Field(
+        default="openai",
+        alias="EVAL_JUDGE_PROVIDER",
+    )
+    eval_judge_model: str = Field(
+        default="openai/gpt-5.4-mini",
+        alias="EVAL_JUDGE_MODEL",
+    )
+    eval_embedding_model: str = Field(
+        default="openai/text-embedding-3-small",
+        alias="EVAL_EMBEDDING_MODEL",
+    )
+    eval_golden_path: Path = Field(
+        default=Path("tests/eval/golden_dataset.json"),
+        alias="EVAL_GOLDEN_PATH",
+    )
+    eval_results_dir: Path = Field(
+        default=Path("tests/eval/results"),
+        alias="EVAL_RESULTS_DIR",
+    )
+    eval_concurrency: int = Field(default=3, ge=1, le=10, alias="EVAL_CONCURRENCY")
+    eval_faithfulness_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        alias="EVAL_FAITHFULNESS_THRESHOLD",
+    )
+    eval_answer_relevancy_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        alias="EVAL_ANSWER_RELEVANCY_THRESHOLD",
+    )
+    eval_citation_threshold: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        alias="EVAL_CITATION_THRESHOLD",
+    )
+    rag_tracing_enabled: bool = Field(default=False, alias="RAG_TRACING_ENABLED")
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
