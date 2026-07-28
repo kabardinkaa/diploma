@@ -102,6 +102,17 @@ class Settings(BaseSettings):
         alias="RAG_SIMILARITY_TOP_K",
     )
     rag_min_score: float = Field(default=0.82, ge=0.0, le=1.0, alias="RAG_MIN_SCORE")
+    rag_chunking_strategy: Literal["fixed", "recursive", "semantic"] = Field(
+        default="recursive",
+        alias="RAG_CHUNKING_STRATEGY",
+    )
+    rag_retrieval_top_k: int = Field(default=10, ge=10, alias="RAG_RETRIEVAL_TOP_K")
+    rag_reranker_enabled: bool = Field(default=False, alias="RAG_RERANKER_ENABLED")
+    rag_reranker_model: str = Field(
+        default="BAAI/bge-reranker-v2-m3",
+        alias="RAG_RERANKER_MODEL",
+    )
+    rag_rerank_top_n: int = Field(default=10, ge=10, alias="RAG_RERANK_TOP_N")
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 

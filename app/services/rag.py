@@ -15,7 +15,6 @@ from llama_index.core import (
 )
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.prompts import PromptTemplate
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.openai import OpenAI as LlamaOpenAI
 from llama_index.llms.openai_like import OpenAILike
 from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -23,6 +22,7 @@ from openai import AsyncOpenAI
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app.core.config import Settings, get_settings
+from app.services.chunking import build_e5_embedding
 from app.services.rag_common import FALLBACK_ANSWER, RAG_SYSTEM_PROMPT
 
 logger = structlog.get_logger("rag-service")
@@ -90,15 +90,7 @@ class RAGService:
         self.indexed_on_build = False
 
     def _configure_llama_index(self) -> None:
-        self._embed_model = HuggingFaceEmbedding(
-            model_name=self.settings.embedding_model,
-            query_instruction="query: ",
-            text_instruction="passage: ",
-            normalize=True,
-            embed_batch_size=self.settings.embedding_batch_size,
-            cache_folder=str(self.settings.embedding_cache_dir),
-            show_progress_bar=False,
-        )
+        self._embed_model = build_e5_embedding(self.settings)
         llm_kwargs: dict[str, Any] = {
             "model": self.settings.llm.default_model,
             "temperature": 0.0,

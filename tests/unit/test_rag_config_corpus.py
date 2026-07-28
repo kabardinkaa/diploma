@@ -13,6 +13,11 @@ def test_rag_settings_are_read_from_environment(monkeypatch) -> None:
     monkeypatch.setenv("RAG_CHUNK_OVERLAP", "32")
     monkeypatch.setenv("RAG_SIMILARITY_TOP_K", "4")
     monkeypatch.setenv("RAG_MIN_SCORE", "0.77")
+    monkeypatch.setenv("RAG_CHUNKING_STRATEGY", "fixed")
+    monkeypatch.setenv("RAG_RETRIEVAL_TOP_K", "20")
+    monkeypatch.setenv("RAG_RERANKER_ENABLED", "true")
+    monkeypatch.setenv("RAG_RERANKER_MODEL", "test/reranker")
+    monkeypatch.setenv("RAG_RERANK_TOP_N", "12")
 
     settings = Settings(
         _env_file=None,
@@ -26,6 +31,11 @@ def test_rag_settings_are_read_from_environment(monkeypatch) -> None:
     assert settings.rag_chunk_overlap == 32
     assert settings.rag_similarity_top_k == 4
     assert settings.rag_min_score == 0.77
+    assert settings.rag_chunking_strategy == "fixed"
+    assert settings.rag_retrieval_top_k == 20
+    assert settings.rag_reranker_enabled is True
+    assert settings.rag_reranker_model == "test/reranker"
+    assert settings.rag_rerank_top_n == 12
 
 
 def test_overlap_must_be_smaller_than_chunk_size() -> None:

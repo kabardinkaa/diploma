@@ -734,3 +734,24 @@ python scripts/vector_store_smoke.py --local
 - Bare-metal CLI: `python -m app.services.rag_baremetal`
 - Сравнительный smoke: `python scripts/rag_smoke.py`
 - Архитектура и фактические результаты: `docs/rag.md`
+
+## Домашнее задание 5.4 - Chunking и оптимизация retrieval
+
+Retrieval benchmark сравнивает fixed, recursive и semantic chunking на одном
+golden dataset из 24 вопросов:
+
+- dataset: `tests/eval/retrieval_dataset.json`;
+- factories: `app/services/chunking.py`;
+- metrics: `app/services/retrieval_eval.py`;
+- local BGE reranker: `app/services/reranker.py`;
+- runner: `scripts/chunking_experiment.py`;
+- raw results: `tests/eval/chunking_results.json`;
+- отчет: `docs/chunking_experiment.md`.
+
+Финально выбраны recursive `512/64`, retrieval top-K `10`, reranker выключен:
+качество `Hit@5=1.000`, `MRR@10=1.000`, `Recall@10=1.000`, а live BGE не
+улучшил метрики и добавил около 1.36 секунды latency.
+
+```powershell
+python scripts/chunking_experiment.py
+```

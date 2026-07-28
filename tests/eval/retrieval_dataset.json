@@ -1,0 +1,98 @@
+[
+  {
+    "question": "Что проверить, если VPN подключился, но внутренние сайты не открываются?",
+    "relevant_doc_ids": ["01_vpn.md"]
+  },
+  {
+    "question": "Как восстановить VPN после обновления клиента и старого файла конфигурации?",
+    "relevant_doc_ids": ["01_vpn.md"]
+  },
+  {
+    "question": "Через сколько снимается временная блокировка CRM и как разблокировать запись вручную?",
+    "relevant_doc_ids": ["02_crm.md"]
+  },
+  {
+    "question": "Почему после смены доменного пароля CRM продолжает отклонять вход?",
+    "relevant_doc_ids": ["02_crm.md", "04_passwords_sso_mfa.md"]
+  },
+  {
+    "question": "Почему корпоративное письмо с большим вложением остается в Исходящих?",
+    "relevant_doc_ids": ["03_email.md"]
+  },
+  {
+    "question": "Почтовый клиент после смены пароля снова просит старые учетные данные. Что удалить?",
+    "relevant_doc_ids": ["03_email.md", "04_passwords_sso_mfa.md"]
+  },
+  {
+    "question": "После смены пароля не работают почта, SSO и другие внутренние системы. Что проверить?",
+    "relevant_doc_ids": ["03_email.md", "04_passwords_sso_mfa.md", "05_internal_access.md"]
+  },
+  {
+    "question": "Как восстановить MFA после потери телефона и можно ли сообщать одноразовый код поддержке?",
+    "relevant_doc_ids": ["04_passwords_sso_mfa.md"]
+  },
+  {
+    "question": "Как запросить роль в новой внутренней системе и кто согласует заявку?",
+    "relevant_doc_ids": ["05_internal_access.md"]
+  },
+  {
+    "question": "Роль уже согласована, но доступ не появился. Нужно ли обновить SSO-сессию?",
+    "relevant_doc_ids": ["04_passwords_sso_mfa.md", "05_internal_access.md"]
+  },
+  {
+    "question": "Что проверить, если рабочий компьютер стал медленным и заканчивается место на диске?",
+    "relevant_doc_ids": ["06_workplace.md"]
+  },
+  {
+    "question": "Монитор не показывает изображение через док-станцию. Какие первые действия?",
+    "relevant_doc_ids": ["06_workplace.md"]
+  },
+  {
+    "question": "Wi-Fi подключен, но интернет не работает. Как отличить сбой ноутбука от точки доступа?",
+    "relevant_doc_ids": ["07_network_wifi.md"]
+  },
+  {
+    "question": "Как заново подключиться к корпоративному Wi-Fi с доменной учетной записью?",
+    "relevant_doc_ids": ["04_passwords_sso_mfa.md", "07_network_wifi.md"]
+  },
+  {
+    "question": "Что делать, если в гарнитуре не работает микрофон в приложении для звонков?",
+    "relevant_doc_ids": ["08_headset_microphone.md"]
+  },
+  {
+    "question": "Bluetooth-гарнитура воспроизводит звук, но микрофон недоступен. Какой профиль выбрать?",
+    "relevant_doc_ids": ["08_headset_microphone.md"]
+  },
+  {
+    "question": "Какие данные приложить к обращению в техподдержку для быстрой диагностики?",
+    "relevant_doc_ids": ["09_support_ticket.md"]
+  },
+  {
+    "question": "Как дополнить уже созданное обращение и почему не надо создавать дубликат?",
+    "relevant_doc_ids": ["09_support_ticket.md"]
+  },
+  {
+    "question": "Внутренний ресурс открывается по IP, но не по имени. Связано ли это с DNS или сетью?",
+    "relevant_doc_ids": ["01_vpn.md", "07_network_wifi.md"]
+  },
+  {
+    "question": "Проблема повторяется у коллег. Что проверить через другую сеть и что написать в тикете?",
+    "relevant_doc_ids": ["07_network_wifi.md", "09_support_ticket.md"]
+  },
+  {
+    "question": "После смены пароля одновременно заблокировалась CRM и перестала подключаться почта.",
+    "relevant_doc_ids": ["02_crm.md", "03_email.md", "04_passwords_sso_mfa.md"]
+  },
+  {
+    "question": "Доступ к внутреннему ресурсу одобрен, но через VPN он не появился после старой SSO-сессии.",
+    "relevant_doc_ids": ["01_vpn.md", "04_passwords_sso_mfa.md", "05_internal_access.md"]
+  },
+  {
+    "question": "Как диагностировать сетевой сбой на рабочем месте и какие сведения передать поддержке?",
+    "relevant_doc_ids": ["06_workplace.md", "07_network_wifi.md", "09_support_ticket.md"]
+  },
+  {
+    "question": "Пришел неожиданный запрос MFA. Какие секреты нельзя сообщать и как безопасно создать обращение?",
+    "relevant_doc_ids": ["04_passwords_sso_mfa.md", "09_support_ticket.md"]
+  }
+]
