@@ -1,0 +1,149 @@
+{
+  "run_id": "smoke-2-prebuilt-1",
+  "task_id": 2,
+  "implementation": "prebuilt",
+  "repeat": 1,
+  "answer": "Сейчас 22:55:16 (5 августа 2026 г.) по московскому времени.",
+  "correct": true,
+  "correctness_reason": "Детерминированные критерии выполнены",
+  "latency_ms": 6663.67,
+  "prompt_tokens": 1461,
+  "completion_tokens": 385,
+  "total_tokens": 1846,
+  "total_steps": 2,
+  "tool_calls_count": 1,
+  "error": null,
+  "timed_out": false,
+  "raw_file": "docs/agent-graph-smoke/02-prebuilt.json",
+  "task": "Скажи текущее время в часовом поясе Europe/Moscow.",
+  "result": {
+    "answer": "Сейчас 22:55:16 (5 августа 2026 г.) по московскому времени.",
+    "steps": 2,
+    "messages": [
+      {
+        "content": "Скажи текущее время в часовом поясе Europe/Moscow.",
+        "additional_kwargs": {},
+        "response_metadata": {},
+        "type": "human",
+        "name": null,
+        "id": "ba17f827-51d7-4ced-afc4-79d6e3477c80"
+      },
+      {
+        "content": "\n\n",
+        "additional_kwargs": {
+          "refusal": null
+        },
+        "response_metadata": {
+          "token_usage": {
+            "completion_tokens": 94,
+            "prompt_tokens": 691,
+            "total_tokens": 785,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": null,
+              "audio_tokens": null,
+              "reasoning_tokens": 62,
+              "rejected_prediction_tokens": null
+            },
+            "prompt_tokens_details": null
+          },
+          "model_provider": "openai",
+          "model_name": "gpt-5.4-mini",
+          "system_fingerprint": "gpt-5.4-mini",
+          "id": "chatcmpl-y12axhoqhyopqphknkrja",
+          "finish_reason": "tool_calls",
+          "logprobs": null
+        },
+        "type": "ai",
+        "name": null,
+        "id": "lc_run--019fd37e-8bab-7b12-af59-fbb46caeb233-0",
+        "tool_calls": [
+          {
+            "name": "get_current_time",
+            "args": {
+              "timezone": "Europe/Moscow"
+            },
+            "id": "611042768",
+            "type": "tool_call"
+          }
+        ],
+        "invalid_tool_calls": [],
+        "usage_metadata": {
+          "input_tokens": 691,
+          "output_tokens": 94,
+          "total_tokens": 785,
+          "input_token_details": {},
+          "output_token_details": {
+            "reasoning": 62
+          }
+        }
+      },
+      {
+        "content": "2026-08-05T22:55:16.666965+03:00",
+        "additional_kwargs": {},
+        "response_metadata": {},
+        "type": "tool",
+        "name": "get_current_time",
+        "id": "b4e18dd8-375b-47d7-8163-9aa5f23f86d9",
+        "tool_call_id": "611042768",
+        "artifact": null,
+        "status": "success"
+      },
+      {
+        "content": "\n\nСейчас 22:55:16 (5 августа 2026 г.) по московскому времени.",
+        "additional_kwargs": {
+          "refusal": null
+        },
+        "response_metadata": {
+          "token_usage": {
+            "completion_tokens": 291,
+            "prompt_tokens": 770,
+            "total_tokens": 1061,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": null,
+              "audio_tokens": null,
+              "reasoning_tokens": 261,
+              "rejected_prediction_tokens": null
+            },
+            "prompt_tokens_details": null
+          },
+          "model_provider": "openai",
+          "model_name": "gpt-5.4-mini",
+          "system_fingerprint": "gpt-5.4-mini",
+          "id": "chatcmpl-u4ujxwixlwm4fpjbjwp80y",
+          "finish_reason": "stop",
+          "logprobs": null
+        },
+        "type": "ai",
+        "name": null,
+        "id": "lc_run--019fd37e-973b-70b2-a47b-97bd43e57009-0",
+        "tool_calls": [],
+        "invalid_tool_calls": [],
+        "usage_metadata": {
+          "input_tokens": 770,
+          "output_tokens": 291,
+          "total_tokens": 1061,
+          "input_token_details": {},
+          "output_token_details": {
+            "reasoning": 261
+          }
+        }
+      }
+    ],
+    "tool_results": [
+      {
+        "name": "get_current_time",
+        "args": {
+          "timezone": "Europe/Moscow"
+        },
+        "result": "2026-08-05T22:55:16.666965+03:00",
+        "tool_call_id": "611042768",
+        "error": null
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 1461,
+      "completion_tokens": 385,
+      "total_tokens": 1846
+    }
+  }
+}

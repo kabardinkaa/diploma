@@ -1,0 +1,48 @@
+{
+  "run_id": "bench-1-react_6_2-1",
+  "task_id": 1,
+  "implementation": "react_6_2",
+  "repeat": 1,
+  "answer": "Timeout",
+  "correct": false,
+  "correctness_reason": "Запуск завершился по timeout",
+  "latency_ms": 15018.23,
+  "prompt_tokens": 741,
+  "completion_tokens": 172,
+  "total_tokens": 913,
+  "total_steps": 1,
+  "tool_calls_count": 0,
+  "tools_used": [],
+  "error": "Timeout",
+  "timed_out": true,
+  "raw_file": "docs/agent-graph-results/bench-1-react_6_2-1.attempt-2.json",
+  "task": "Найди в корпоративной базе инструкцию по ошибке VPN 691 и кратко перескажи найденное.",
+  "result": {
+    "answer": "Timeout",
+    "steps": 1,
+    "trace": [
+      {
+        "iteration": 1,
+        "tool_name": null,
+        "tool_args": {},
+        "observation": "Timeout",
+        "latency_ms": 15010.98,
+        "prompt_tokens": 741,
+        "completion_tokens": 172,
+        "total_tokens": 913,
+        "critic_verdict": null,
+        "revision_applied": false,
+        "model": "gpt-5.4-mini",
+        "timeout": true,
+        "error": "Timeout"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 741,
+      "completion_tokens": 172,
+      "total_tokens": 913
+    },
+    "revisions_used": 0,
+    "error": "Timeout"
+  }
+}

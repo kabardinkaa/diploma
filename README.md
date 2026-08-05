@@ -862,3 +862,41 @@ stdout описаны в [docs/agent-react-scenarios.md](docs/agent-react-scenar
 Фактические метрики, средние значения и ограничения локального запуска собраны
 в [docs/agent-react-report.md](docs/agent-react-report.md); искусственные
 метрики не использовались.
+
+## Домашнее задание 6.3 - LangGraph
+
+ReAct orchestration перенесён в LangGraph 1.x двумя способами: custom
+`StateGraph` с явными state/reducers/router/stop-краном и prebuilt-граф через
+актуальный `langchain.agents.create_agent`. Оба используют один настроенный
+`ChatOpenAI`, модель `gpt-5.4-mini`, temperature `0` и единый набор доменных
+tools без дублирования бизнес-логики.
+
+```powershell
+python -m app.services.agent_graph custom "Скажи время в Europe/Moscow"
+python -m app.services.agent_graph prebuilt "Скажи время в Europe/Moscow" --trace
+python -m app.services.agent_graph custom --mermaid
+python scripts/visualize_graph.py
+```
+
+`--thread-id` заранее сохраняет интерфейс для будущего checkpointer. Mermaid
+генерируется локально в `docs/agent-graph-*.mmd` и `.md`, без сетевого renderer.
+Benchmark-runner сравнивает baseline блока 6.2, custom и prebuilt на пяти
+задачах с тремя повторами. Запуски выполняются последовательно, каждый raw
+сохраняется сразу, а `gc.collect()` освобождает память между runs:
+
+```powershell
+python scripts/bench_agents.py --dry-run
+python scripts/bench_agents.py --resume --task-id 2 --implementation custom --repeats 3 --react-timeout-per-iteration 15 --run-timeout 60
+python scripts/bench_agents.py --plan-rerun-failed
+python scripts/bench_agents.py --resume --rerun-failed --max-attempts 2 --task-id 4 --implementation custom --repeats 3 --react-timeout-per-iteration 15 --run-timeout 60
+python scripts/bench_agents.py --aggregate-only
+python scripts/visualize_graph.py
+```
+
+Финальный локальный benchmark содержит 45 канонических результатов: 40
+технически успешных и 5 окончательных timeout ReAct. OpenRouter не
+использовался. Raw и история attempts лежат в `docs/agent-graph-results/`, smoke
+— в `docs/agent-graph-smoke/`, полный анализ — в
+[docs/agent-graph-report.md](docs/agent-graph-report.md). Baseline-файлы
+`agent_naive.py` и `agent_react.py` не изменены. `send_telegram_message`
+остаётся локальной print-заглушкой и не обращается к Telegram API.

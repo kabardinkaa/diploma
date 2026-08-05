@@ -1,0 +1,21 @@
+{
+  "run_id": "bench-1-react_6_2-3",
+  "task_id": 1,
+  "implementation": "react_6_2",
+  "repeat": 3,
+  "answer": "",
+  "correct": false,
+  "correctness_reason": "Запуск завершился по timeout",
+  "latency_ms": 60005.12,
+  "prompt_tokens": 0,
+  "completion_tokens": 0,
+  "total_tokens": 0,
+  "total_steps": 0,
+  "tool_calls_count": 0,
+  "tools_used": [],
+  "error": "Per-run timeout after 60 sec",
+  "timed_out": true,
+  "raw_file": "docs/agent-graph-results/bench-1-react_6_2-3.attempt-2.json",
+  "task": "Найди в корпоративной базе инструкцию по ошибке VPN 691 и кратко перескажи найденное.",
+  "result": {}
+}

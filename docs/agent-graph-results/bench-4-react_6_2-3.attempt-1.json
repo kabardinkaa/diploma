@@ -1,0 +1,48 @@
+{
+  "run_id": "bench-4-react_6_2-3",
+  "task_id": 4,
+  "implementation": "react_6_2",
+  "repeat": 3,
+  "answer": "Timeout",
+  "correct": false,
+  "correctness_reason": "Запуск завершился по timeout",
+  "latency_ms": 15023.25,
+  "prompt_tokens": 761,
+  "completion_tokens": 191,
+  "total_tokens": 952,
+  "total_steps": 1,
+  "tool_calls_count": 0,
+  "tools_used": [],
+  "error": "Timeout",
+  "timed_out": true,
+  "raw_file": "docs/agent-graph-results/bench-4-react_6_2-3.json",
+  "task": "Найди в базе инструкцию по переполненному почтовому ящику, составь по найденному краткое сообщение и отправь его в Telegram-чат 12345. Отправку явно подтверждаю.",
+  "result": {
+    "answer": "Timeout",
+    "steps": 1,
+    "trace": [
+      {
+        "iteration": 1,
+        "tool_name": null,
+        "tool_args": {},
+        "observation": "Timeout",
+        "latency_ms": 15014.57,
+        "prompt_tokens": 761,
+        "completion_tokens": 191,
+        "total_tokens": 952,
+        "critic_verdict": null,
+        "revision_applied": false,
+        "model": "gpt-5.4-mini",
+        "timeout": true,
+        "error": "Timeout"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 761,
+      "completion_tokens": 191,
+      "total_tokens": 952
+    },
+    "revisions_used": 0,
+    "error": "Timeout"
+  }
+}

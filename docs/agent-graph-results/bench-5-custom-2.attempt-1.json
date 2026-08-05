@@ -1,0 +1,21 @@
+{
+  "run_id": "bench-5-custom-2",
+  "task_id": 5,
+  "implementation": "custom",
+  "repeat": 2,
+  "answer": "",
+  "correct": false,
+  "correctness_reason": "Ошибка запуска: BadRequestError: Error code: 400 - {'error': {'message': \"No models loaded. Please load a model in the developer page or use the 'lms load' command.\", 'type': 'invalid_request_error', 'param': 'model', 'code': None}}",
+  "latency_ms": 3.63,
+  "prompt_tokens": 0,
+  "completion_tokens": 0,
+  "total_tokens": 0,
+  "total_steps": 0,
+  "tool_calls_count": 0,
+  "tools_used": [],
+  "error": "BadRequestError: Error code: 400 - {'error': {'message': \"No models loaded. Please load a model in the developer page or use the 'lms load' command.\", 'type': 'invalid_request_error', 'param': 'model', 'code': None}}",
+  "timed_out": false,
+  "raw_file": "docs/agent-graph-results/bench-5-custom-2.json",
+  "task": "Кратко объясни разницу между HTTP и HTTPS. Не используй инструменты, если можешь ответить сам.",
+  "result": {}
+}

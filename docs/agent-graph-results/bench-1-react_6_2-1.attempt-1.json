@@ -1,0 +1,65 @@
+{
+  "run_id": "bench-1-react_6_2-1",
+  "task_id": 1,
+  "implementation": "react_6_2",
+  "repeat": 1,
+  "answer": "Timeout",
+  "correct": false,
+  "correctness_reason": "Запуск завершился по timeout",
+  "latency_ms": 28272.77,
+  "prompt_tokens": 968,
+  "completion_tokens": 1326,
+  "total_tokens": 2294,
+  "total_steps": 2,
+  "tool_calls_count": 1,
+  "tools_used": [
+    "search_knowledge_base"
+  ],
+  "error": "Timeout",
+  "timed_out": true,
+  "raw_file": "docs/agent-graph-results/bench-1-react_6_2-1.json",
+  "task": "Найди в корпоративной базе инструкцию по ошибке VPN 691 и кратко перескажи найденное.",
+  "result": {
+    "answer": "Timeout",
+    "steps": 2,
+    "trace": [
+      {
+        "iteration": 1,
+        "tool_name": "search_knowledge_base",
+        "tool_args": {
+          "query": "ошибка VPN 691"
+        },
+        "observation": "Если сотрудник не может подключиться к VPN, нужно проверить интернет-соединение, перезапустить VPN-клиент и убедиться, что учетная запись не заблокирована. Если проблема сохраняется, сотрудник должен создать обращение в техподдержку с логином, скриншотом ошибки и временем последней попытки входа.",
+        "latency_ms": 13260.55,
+        "prompt_tokens": 968,
+        "completion_tokens": 1326,
+        "total_tokens": 2294,
+        "critic_verdict": "REVISE: Наблюдение содержит общие рекомендации по VPN, а не специфичную инструкцию по ошибке 691.",
+        "revision_applied": true,
+        "model": "gpt-5.4-mini"
+      },
+      {
+        "iteration": 2,
+        "tool_name": null,
+        "tool_args": {},
+        "observation": "Timeout",
+        "latency_ms": 15004.31,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "critic_verdict": null,
+        "revision_applied": false,
+        "model": "gpt-5.4-mini",
+        "timeout": true,
+        "error": "Timeout"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 968,
+      "completion_tokens": 1326,
+      "total_tokens": 2294
+    },
+    "revisions_used": 1,
+    "error": "Timeout"
+  }
+}

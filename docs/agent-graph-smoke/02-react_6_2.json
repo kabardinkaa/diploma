@@ -1,0 +1,20 @@
+{
+  "run_id": "smoke-2-react_6_2-1",
+  "task_id": 2,
+  "implementation": "react_6_2",
+  "repeat": 1,
+  "answer": "",
+  "correct": false,
+  "correctness_reason": "Ошибка запуска: ValueError: timeout_per_iteration_sec должен быть в диапазоне 5..15",
+  "latency_ms": 0.44,
+  "prompt_tokens": 0,
+  "completion_tokens": 0,
+  "total_tokens": 0,
+  "total_steps": 0,
+  "tool_calls_count": 0,
+  "error": "ValueError: timeout_per_iteration_sec должен быть в диапазоне 5..15",
+  "timed_out": false,
+  "raw_file": "docs/agent-graph-smoke/02-react_6_2.json",
+  "task": "Скажи текущее время в часовом поясе Europe/Moscow.",
+  "result": {}
+}

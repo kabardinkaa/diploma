@@ -1,0 +1,48 @@
+{
+  "run_id": "bench-3-react_6_2-2",
+  "task_id": 3,
+  "implementation": "react_6_2",
+  "repeat": 2,
+  "answer": "Timeout",
+  "correct": false,
+  "correctness_reason": "Запуск завершился по timeout",
+  "latency_ms": 15029.33,
+  "prompt_tokens": 760,
+  "completion_tokens": 150,
+  "total_tokens": 910,
+  "total_steps": 1,
+  "tool_calls_count": 0,
+  "tools_used": [],
+  "error": "Timeout",
+  "timed_out": true,
+  "raw_file": "docs/agent-graph-results/bench-3-react_6_2-2.json",
+  "task": "Найди инструкцию по ошибке VPN 691 и подготовь по ней сообщение для Telegram-чата 12345. Сначала покажи черновик, ничего не отправляй без моего отдельного подтверждения.",
+  "result": {
+    "answer": "Timeout",
+    "steps": 1,
+    "trace": [
+      {
+        "iteration": 1,
+        "tool_name": null,
+        "tool_args": {},
+        "observation": "Timeout",
+        "latency_ms": 15018.64,
+        "prompt_tokens": 760,
+        "completion_tokens": 150,
+        "total_tokens": 910,
+        "critic_verdict": null,
+        "revision_applied": false,
+        "model": "gpt-5.4-mini",
+        "timeout": true,
+        "error": "Timeout"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 760,
+      "completion_tokens": 150,
+      "total_tokens": 910
+    },
+    "revisions_used": 0,
+    "error": "Timeout"
+  }
+}
