@@ -825,3 +825,40 @@ python -m app.services.agent_naive "Проверь текущее время в 
 Пять подготовленных ручных сценариев приведены в
 [docs/agent-naive-traces/README.md](docs/agent-naive-traces/README.md); реальные
 платные прогоны и искусственные trace-файлы не выполнялись.
+
+## Домашнее задание 6.2 - ReAct и critic
+
+Рядом с неизменённым baseline `agent_naive` добавлен нативный ReAct-цикл на
+`client.chat.completions.create`. `agent_react` исполняет ровно один tool-call
+за итерацию, ведёт append-only историю и после каждого observation вызывает
+отдельного critic с ответом `OK` или `REVISE`. Общий лимит применённых ревизий
+за запуск равен двум.
+
+```powershell
+python -m app.services.agent_react "Найди инструкцию по ошибке VPN 691"
+python -m app.services.agent_react "Найди инструкцию по ошибке VPN 691" --trace
+```
+
+Доступны флаги `--max-iterations` (8–20), `--timeout-per-iteration` (5–15
+секунд), `--max-revisions` (0–2), `--model-main` и `--model-critic`. Один общий
+дедлайн итерации охватывает actor LLM, исполнение инструмента и critic LLM;
+LLM-запросы также получают оставшийся request timeout. На Windows LLM-вызовы
+ограничены daemon-потоком и SDK timeout, а быстрые локальные tools исполняются
+синхронно после проверки deadline. Поэтому пишущий tool не продолжит работу
+после возврата `Timeout`. Произвольный долгий Python-tool нельзя безопасно
+принудительно остановить внутри процесса; такой tool задержит возврат до своего
+завершения и должен выноситься в отдельный worker/process.
+
+Trace содержит инструмент, аргументы, сокращённый observation, задержку,
+вердикт critic и usage каждой итерации. Итоговый usage суммирует токены actor и
+critic; если OpenAI-compatible провайдер не вернул usage, записываются нули.
+Схемы трёх инструментов вынесены отдельно и используют строгий allowlist.
+`search_knowledge_base` возвращает top-1 фрагмент для следующего действия,
+`get_current_time` возвращает ISO datetime, а `send_telegram_message` остаётся
+локальной `print`-заглушкой и требует явного подтверждения.
+
+Пять одинаковых прогонов для naive и ReAct, команды и ссылки на неизменённые raw
+stdout описаны в [docs/agent-react-scenarios.md](docs/agent-react-scenarios.md).
+Фактические метрики, средние значения и ограничения локального запуска собраны
+в [docs/agent-react-report.md](docs/agent-react-report.md); искусственные
+метрики не использовались.
