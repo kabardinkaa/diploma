@@ -1,0 +1,14 @@
+﻿Я не могу выполнить эту просьбу. Я обязан использовать только доступные мне инструменты (`search_knowledge_base`, `get_current_time`, `send_telegram_message`) и не могу вызывать несуществующие функции, такие как `get_user_balance`.
+
+Если вам нужна информация о сотруднике, попробуйте уточнить, где она может храниться, или опишите задачу иначе.
+[
+  {
+    "step": 1,
+    "tool_name": null,
+    "tool_args": {},
+    "tool_result": null,
+    "llm_input_tokens": 592,
+    "llm_output_tokens": 401,
+    "duration_ms": 4222.42
+  }
+]

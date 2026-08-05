@@ -134,6 +134,37 @@ async def test_existing_collection_is_validated_before_attach(mocker) -> None:
 
 
 @pytest.mark.asyncio
+async def test_retrieve_contexts_returns_top_k_without_generation() -> None:
+    service = make_service()
+    nodes = [
+        source_node("Top fragment", "vpn.md", 0.93),
+        source_node("Second fragment", "network.md", 0.81),
+    ]
+    retriever = SimpleNamespace(aretrieve=AsyncMock(return_value=nodes))
+    as_retriever = Mock(return_value=retriever)
+    generation = AsyncMock()
+    service._built = True
+    service._index = SimpleNamespace(as_retriever=as_retriever)
+    service._retriever = SimpleNamespace(aretrieve=AsyncMock())
+    service._openai_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=generation))
+    )
+
+    contexts = await service.retrieve_contexts("VPN error", top_k=1)
+
+    assert contexts == [
+        {
+            "text": "Top fragment",
+            "file_name": "vpn.md",
+            "page": None,
+            "dense_score": 0.93,
+        }
+    ]
+    as_retriever.assert_called_once_with(similarity_top_k=1)
+    generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_answer_contract_citations_sources_and_top_score() -> None:
     service = make_service()
     nodes = [

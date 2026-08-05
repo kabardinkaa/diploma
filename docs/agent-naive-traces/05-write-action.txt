@@ -1,0 +1,25 @@
+﻿[TELEGRAM → 12345] Технические работы начнутся через 15 минут.
+Сообщение «Технические работы начнутся через 15 минут.» успешно отправлено в чат 12345.
+[
+  {
+    "step": 1,
+    "tool_name": "send_telegram_message",
+    "tool_args": {
+      "chat_id": "12345",
+      "text": "Технические работы начнутся через 15 минут."
+    },
+    "tool_result": "Сообщение отправлено в 12345",
+    "llm_input_tokens": 593,
+    "llm_output_tokens": 304,
+    "duration_ms": 2504.74
+  },
+  {
+    "step": 2,
+    "tool_name": null,
+    "tool_args": {},
+    "tool_result": null,
+    "llm_input_tokens": 924,
+    "llm_output_tokens": 56,
+    "duration_ms": 1769.74
+  }
+]

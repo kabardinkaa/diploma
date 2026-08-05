@@ -793,3 +793,35 @@ pip install ".[eval,tracing]"
 python scripts/verify_eval.py
 python scripts/run_eval.py --label baseline --dry-run
 ```
+
+## Домашнее задание 6.1 - Наивный агентный цикл
+
+Добавлен синхронный agent loop без LangChain и LangGraph. На каждой итерации
+модель `gpt-5.4-mini` получает полную историю запуска и может вызвать один или
+несколько инструментов из явного allowlist:
+
+- `search_knowledge_base` использует production RAG и возвращает top-1 фрагмент;
+- `get_current_time` получает локальное время через `zoneinfo` без сети;
+- `send_telegram_message` является учебной `print`-заглушкой и не обращается к
+  Telegram API.
+
+Обычный запуск печатает финальный ответ или причину остановки:
+
+```powershell
+python -m app.services.agent_naive "Найди инструкцию по ошибке VPN 691"
+```
+
+Флаг `--trace` дополнительно выводит JSON-трассу с инструментами, аргументами,
+результатами, токенами и длительностью каждого шага:
+
+```powershell
+python -m app.services.agent_naive "Проверь текущее время в Москве" --trace
+```
+
+Агент использует существующие настройки `OPENAI_API_KEY` или
+`OPENROUTER_API_KEY`, соответствующий `OPENAI_BASE_URL` или
+`OPENROUTER_BASE_URL`, а также `LLM_REQUEST_TIMEOUT` и `LLM_MAX_RETRIES`.
+Модель зафиксирована заданием и не создаёт второй независимый контур настроек.
+Пять подготовленных ручных сценариев приведены в
+[docs/agent-naive-traces/README.md](docs/agent-naive-traces/README.md); реальные
+платные прогоны и искусственные trace-файлы не выполнялись.

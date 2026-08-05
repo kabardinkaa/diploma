@@ -325,6 +325,30 @@ class RAGService:
                 "retrieve_ms": round((time.perf_counter() - started) * 1000, 2),
             }
 
+    async def retrieve_contexts(
+        self,
+        question: str,
+        *,
+        top_k: int = 1,
+    ) -> list[dict[str, Any]]:
+        """Return confident retrieved contexts without calling the generation LLM."""
+        if top_k < 1:
+            raise ValueError("top_k must be at least 1")
+        if not self._built:
+            raise RuntimeError("RAGService.build() must be called before retrieve_contexts()")
+
+        retriever = self._retriever
+        if top_k != self.retrieval_top_k:
+            retriever = self._index.as_retriever(similarity_top_k=top_k)
+        retrieval = await self._retrieve(
+            question,
+            history=None,
+            retriever=retriever,
+        )
+        if not retrieval["confident"]:
+            return []
+        return retrieval["candidates"][:top_k]
+
     @staticmethod
     def _numbered_context(candidates: Sequence[dict[str, Any]], maximum: int) -> str:
         return "\n\n".join(
