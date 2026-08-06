@@ -11,6 +11,7 @@ services:
     environment:
       APP_ENV: docker
       CHAT_REPOSITORY: postgres
+      AGENT_CHECKPOINTER: postgres
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/diploma
       REDIS_URL: redis://redis:6379/0
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317

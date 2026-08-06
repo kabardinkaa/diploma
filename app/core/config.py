@@ -69,6 +69,14 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     cache_ttl_seconds: int = Field(default=300, alias="CACHE_TTL_SECONDS")
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    agent_checkpointer: Literal["memory", "sqlite", "postgres"] = Field(
+        default="sqlite",
+        alias="AGENT_CHECKPOINTER",
+    )
+    agent_sqlite_path: Path = Field(
+        default=Path("./agent.db"),
+        alias="AGENT_SQLITE_PATH",
+    )
     admin_token: SecretStr | None = Field(default=None, alias="ADMIN_TOKEN")
     internal_token: SecretStr | None = Field(default=None, alias="INTERNAL_TOKEN")
     moderation_openai_enabled: bool = Field(default=False, alias="MODERATION_OPENAI_ENABLED")

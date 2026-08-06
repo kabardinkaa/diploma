@@ -22,10 +22,11 @@ from redis.asyncio import Redis
 from app.core.config import get_settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.admin.routes import router as admin_router
-from app.routers import chat, documents, health, models, rag
+from app.routers import agent, chat, documents, health, models, rag
 from app.chat.routes import router as chat_history_router
 from app.services.vector_store import VectorStore
 from app.services.rag import RAGService
+from app.services.agent_persistent import agent_lifespan
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = structlog.get_logger("llm-service")
@@ -77,20 +78,22 @@ async def lifespan(app: FastAPI):
         openai_client=app.state.openai,
     )
 
-    try:
-        await app.state.vector_store.ensure_collection()
-        await app.state.rag_service.build()
-        logger.info("Application startup complete")
-        yield
-    finally:
-        await app.state.rag_service.close()
-        await app.state.vector_store.close()
-        await app.state.openai.close()
+    async with agent_lifespan(settings) as persistent_agent:
+        app.state.persistent_agent = persistent_agent
+        try:
+            await app.state.vector_store.ensure_collection()
+            await app.state.rag_service.build()
+            logger.info("Application startup complete")
+            yield
+        finally:
+            await app.state.rag_service.close()
+            await app.state.vector_store.close()
+            await app.state.openai.close()
 
-        if getattr(app.state, "redis", None) is not None:
-            await app.state.redis.aclose()
+            if getattr(app.state, "redis", None) is not None:
+                await app.state.redis.aclose()
 
-        logger.info("Application shutdown complete")
+            logger.info("Application shutdown complete")
 
 
 settings = get_settings()
@@ -205,3 +208,4 @@ app.include_router(rag.router)
 app.include_router(documents.router)
 app.include_router(admin_router)
 app.include_router(chat_history_router)
+app.include_router(agent.router)

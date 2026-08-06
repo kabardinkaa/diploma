@@ -37,6 +37,10 @@ llama-index-embeddings-huggingface==0.7.0
 llama-index-llms-openai==0.7.10
 llama-index-llms-openai-like==0.7.2
 langgraph>=1.0,<2
+langgraph-checkpoint-sqlite>=2.1
+langgraph-checkpoint-postgres>=2.1
+aiosqlite
+psycopg[binary,pool]>=3.2
 langchain>=1.0,<2
 langchain-core>=1.0,<2
 langchain-openai>=1.0
