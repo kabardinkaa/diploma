@@ -50,25 +50,25 @@ eval/security/rest_config.json
 Список доступных probes сохранён в:
 
 ```text
-docs/security/garak-probes-list.txt
+docs/archive/security/garak-probes-list.txt
 ```
 
 Baseline-прогоны до защиты:
 
 ```text
-docs/security/baseline-promptinject.log
-docs/security/baseline-encoding-base64.log
+docs/archive/security/baseline-promptinject.log
+docs/archive/security/baseline-encoding-base64.log
 ```
 
 Guard-прогоны после подключения защиты:
 
 ```text
-docs/security/guard-promptinject.log
-docs/security/guard-encoding-base64.log
-docs/security/guard-jailbreak.log
+docs/archive/security/guard-promptinject.log
+docs/archive/security/guard-encoding-base64.log
+docs/archive/security/guard-jailbreak.log
 ```
 
-JSONL-отчёты garak также сохранены в `docs/security`.
+JSONL-отчёты garak также сохранены в `docs/archive/security`.
 
 ## Использованные probes
 

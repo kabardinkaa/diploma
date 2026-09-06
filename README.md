@@ -240,7 +240,7 @@ final_without_tool
 * Реализован метод `stream_chat(prompt)` как async-генератор.
 * Добавлен FastAPI endpoint `POST /chat/stream`, который отдаёт ответ через SSE.
 * Добавлен скрипт `scripts/benchmark.py` для сравнения sync и async режимов.
-* Результаты бенчмарка сохраняются в `scripts/benchmark_results.md`.
+* Результаты бенчмарка сохранены в `docs/archive/benchmark_results.md`.
 
 ### Установка зависимостей
 
@@ -359,7 +359,7 @@ Semaphore = floor(RPM / 60 * 0.8)
 * `app/llm/async_client.py` — асинхронный LLM-клиент.
 * `app/api.py` — FastAPI endpoints `/chat`, `/chat/stream`, `/health`.
 * `scripts/benchmark.py` — скрипт бенчмарка.
-* `scripts/benchmark_results.md` — сохранённые результаты бенчмарка.
+* `docs/archive/benchmark_results.md` — сохранённые результаты бенчмарка.
 * `requirements.txt` — обновлённые зависимости.
 
 ## Домашнее задание 3.4 — FastAPI-сервис для LLM
@@ -823,7 +823,7 @@ python -m app.services.agent_naive "Проверь текущее время в 
 `OPENROUTER_BASE_URL`, а также `LLM_REQUEST_TIMEOUT` и `LLM_MAX_RETRIES`.
 Модель зафиксирована заданием и не создаёт второй независимый контур настроек.
 Пять подготовленных ручных сценариев приведены в
-[docs/agent-naive-traces/README.md](docs/agent-naive-traces/README.md); реальные
+[docs/archive/agent-naive-traces/README.md](docs/archive/agent-naive-traces/README.md); реальные
 платные прогоны и искусственные trace-файлы не выполнялись.
 
 ## Домашнее задание 6.2 - ReAct и critic
@@ -858,9 +858,9 @@ critic; если OpenAI-compatible провайдер не вернул usage, �
 локальной `print`-заглушкой и требует явного подтверждения.
 
 Пять одинаковых прогонов для naive и ReAct, команды и ссылки на неизменённые raw
-stdout описаны в [docs/agent-react-scenarios.md](docs/agent-react-scenarios.md).
+stdout описаны в [docs/archive/agent-react-scenarios.md](docs/archive/agent-react-scenarios.md).
 Фактические метрики, средние значения и ограничения локального запуска собраны
-в [docs/agent-react-report.md](docs/agent-react-report.md); искусственные
+в [docs/archive/agent-react-report.md](docs/archive/agent-react-report.md); искусственные
 метрики не использовались.
 
 ## Домашнее задание 6.3 - LangGraph
@@ -895,8 +895,8 @@ python scripts/visualize_graph.py
 
 Финальный локальный benchmark содержит 45 канонических результатов: 40
 технически успешных и 5 окончательных timeout ReAct. OpenRouter не
-использовался. Raw и история attempts лежат в `docs/agent-graph-results/`, smoke
-— в `docs/agent-graph-smoke/`, полный анализ — в
-[docs/agent-graph-report.md](docs/agent-graph-report.md). Baseline-файлы
+использовался. Raw и история attempts лежат в `docs/archive/agent-graph-results/`, smoke
+— в `docs/archive/agent-graph-smoke/`, полный анализ — в
+[docs/archive/agent-graph-report.md](docs/archive/agent-graph-report.md). Baseline-файлы
 `agent_naive.py` и `agent_react.py` не изменены. `send_telegram_message`
 остаётся локальной print-заглушкой и не обращается к Telegram API.

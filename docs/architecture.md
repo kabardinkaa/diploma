@@ -302,7 +302,7 @@ LiteLLM рассматривается как готовый LLM Gateway для 
 Конфиг лежит в:
 
 ```text
-docs/litellm/config.yaml
+docs/archive/litellm/config.yaml
 ```
 
 Установка:
@@ -314,7 +314,7 @@ pip install "litellm[proxy]"
 Запуск proxy:
 
 ```bash
-litellm --config docs/litellm/config.yaml --port 4000
+litellm --config docs/archive/litellm/config.yaml --port 4000
 ```
 
 Пример запроса:
