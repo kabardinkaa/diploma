@@ -27,7 +27,10 @@ class LLMSettings(BaseSettings):
     openrouter_api_key: SecretStr | None = Field(default=None, alias="OPENROUTER_API_KEY")
     openrouter_base_url: str | None = Field(default=None, alias="OPENROUTER_BASE_URL")
 
-    default_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
+    default_model: str = Field(
+        default="openai/gpt-5.4-mini",
+        alias="OPENAI_MODEL",
+    )
     request_timeout: float = Field(default=60.0, alias="LLM_REQUEST_TIMEOUT")
     max_retries: int = Field(default=3, alias="LLM_MAX_RETRIES")
 
@@ -66,8 +69,6 @@ class Settings(BaseSettings):
     app_version: str = Field(default="3.4.0", alias="APP_VERSION")
     environment: str = Field(default="dev", alias="APP_ENV")
 
-    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
-    cache_ttl_seconds: int = Field(default=300, alias="CACHE_TTL_SECONDS")
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     agent_checkpointer: Literal["memory", "sqlite", "postgres"] = Field(
         default="sqlite",
@@ -76,6 +77,10 @@ class Settings(BaseSettings):
     agent_sqlite_path: Path = Field(
         default=Path("./agent.db"),
         alias="AGENT_SQLITE_PATH",
+    )
+    agent_model: str = Field(
+        default="openai/gpt-5.4-mini",
+        alias="AGENT_MODEL",
     )
     admin_token: SecretStr | None = Field(default=None, alias="ADMIN_TOKEN")
     internal_token: SecretStr | None = Field(default=None, alias="INTERNAL_TOKEN")
@@ -135,6 +140,7 @@ class Settings(BaseSettings):
         default="openai/gpt-5.4-mini",
         alias="RAG_GENERATION_MODEL",
     )
+    rag_max_tokens: int = Field(default=256, ge=1, alias="RAG_MAX_TOKENS")
 
     eval_judge_provider: Literal["openai", "local"] = Field(
         default="local",

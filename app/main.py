@@ -17,14 +17,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
-from redis.asyncio import Redis
 
 from app.core.config import get_settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.admin.routes import router as admin_router
 from app.routers import agent, chat, documents, health, models, rag
 from app.chat.routes import router as chat_history_router
-from app.services.vector_store import VectorStore
 from app.services.rag import RAGService
 from app.services.agent_persistent import agent_lifespan
 
@@ -63,35 +61,22 @@ async def lifespan(app: FastAPI):
         client_kwargs["base_url"] = settings.llm.base_url
 
     app.state.openai = AsyncOpenAI(**client_kwargs)
-    app.state.redis = Redis.from_url(
-    settings.redis_url,
-    decode_responses=True,
-)
-
-    # In-memory cache для локального MVP.
-    # Он нужен, чтобы ДЗ работало даже без запущенного Redis.
+    # Process-local cache keeps the final runtime independent from Redis.
     app.state.cache = {}
-    app.state.vector_store = VectorStore(settings)
     app.state.rag_service = RAGService(
         settings,
-        async_qdrant_client=app.state.vector_store.client,
         openai_client=app.state.openai,
     )
 
     async with agent_lifespan(settings) as persistent_agent:
         app.state.persistent_agent = persistent_agent
         try:
-            await app.state.vector_store.ensure_collection()
             await app.state.rag_service.build()
             logger.info("Application startup complete")
             yield
         finally:
             await app.state.rag_service.close()
-            await app.state.vector_store.close()
             await app.state.openai.close()
-
-            if getattr(app.state, "redis", None) is not None:
-                await app.state.redis.aclose()
 
             logger.info("Application shutdown complete")
 

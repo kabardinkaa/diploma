@@ -11,7 +11,6 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import openai
-from redis.exceptions import RedisError
 
 from app.core.config import Settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
@@ -32,7 +31,12 @@ class LLMService:
     - преобразование ошибок SDK в доменные ошибки.
     """
 
-    def __init__(self, openai_client, cache, settings: Settings) -> None:
+    def __init__(
+        self,
+        openai_client: Any,
+        cache: dict[str, str],
+        settings: Settings,
+    ) -> None:
         self.openai = openai_client
         self.cache = cache
         self.settings = settings
@@ -48,40 +52,10 @@ class LLMService:
         return f"chat:{digest}"
 
     async def _cache_get(self, key: str) -> str | None:
-        try:
-            if self.cache is None:
-                return None
-
-            if isinstance(self.cache, dict):
-                return self.cache.get(key)
-
-            value = await self.cache.get(key)
-
-            if isinstance(value, bytes):
-                return value.decode("utf-8")
-
-            return value
-
-        except RedisError:
-            return None
+        return self.cache.get(key)
 
     async def _cache_set(self, key: str, value: str) -> None:
-        try:
-            if self.cache is None:
-                return
-
-            if isinstance(self.cache, dict):
-                self.cache[key] = value
-                return
-
-            await self.cache.setex(
-                key,
-                self.settings.cache_ttl_seconds,
-                value,
-            )
-
-        except RedisError:
-            return
+        self.cache[key] = value
 
     async def complete(self, req: ChatRequest) -> ChatResponse:
         started_at = time.perf_counter()

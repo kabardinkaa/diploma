@@ -48,14 +48,14 @@ class PersistentAgentState(TypedDict):
 
 
 def _build_model() -> ChatOpenAI:
-    settings = get_settings().llm
+    settings = get_settings()
     return ChatOpenAI(
-        model="gpt-5.4-mini",
+        model=settings.agent_model,
         temperature=0,
-        api_key=settings.api_key,
-        base_url=settings.base_url,
-        timeout=settings.request_timeout,
-        max_retries=settings.max_retries,
+        api_key=settings.llm.api_key,
+        base_url=settings.llm.base_url,
+        timeout=settings.llm.request_timeout,
+        max_retries=settings.llm.max_retries,
     )
 
 

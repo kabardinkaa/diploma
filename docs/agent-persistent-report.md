@@ -18,7 +18,7 @@
 
 ## 2. Postgres в compose, URI и проверка таблиц
 
-Сервис `postgres` в `compose.yaml` использует образ `postgres:16-alpine`, БД
+Сервис `postgres` в `docker-compose.yml` использует образ `postgres:16-alpine`, БД
 `diploma`, пользователя `postgres`, healthcheck `pg_isready` и постоянный volume
 `pg-data`. Приложение подключается по уже существующему URI:
 

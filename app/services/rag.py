@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
 import structlog
+import openai
 from llama_index.core import Settings as LlamaSettings
 from llama_index.core import VectorStoreIndex
 from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -15,6 +16,7 @@ from openai import AsyncOpenAI
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app.core.config import Settings, get_settings
+from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.observability.tracing import set_span_attributes, trace_span
 from app.services.chunking import build_e5_embedding
 from app.services.rag_common import FALLBACK_ANSWER
@@ -48,6 +50,16 @@ CONDENSE_PROMPT = """\
 
 class RAGCollectionError(RuntimeError):
     """Raised when an existing collection has an incompatible vector schema."""
+
+
+def _provider_error(exc: openai.OpenAIError) -> LLMError:
+    if isinstance(exc, openai.RateLimitError):
+        return LLMRateLimitError("Превышен лимит запросов к LLM-провайдеру")
+    if isinstance(exc, openai.APITimeoutError):
+        return LLMTimeoutError("LLM-провайдер не ответил за отведённое время")
+    if isinstance(exc, openai.AuthenticationError):
+        return LLMAuthError("Ошибка авторизации у LLM-провайдера")
+    return LLMError("Ошибка при обращении к LLM-провайдеру")
 
 
 def normalize_citations(answer: str, valid_ids: set[int]) -> str:
@@ -131,6 +143,16 @@ class RAGService:
             self.settings.rag_similarity_top_k,
         )
 
+    @property
+    def generation_max_tokens(self) -> int:
+        return int(
+            getattr(
+                self.settings,
+                "rag_max_tokens",
+                Settings.model_fields["rag_max_tokens"].default,
+            )
+        )
+
     def _configure_llama_index(self) -> None:
         self._embed_model = self._embed_model or build_e5_embedding(self.settings)
         LlamaSettings.embed_model = self._embed_model
@@ -211,7 +233,11 @@ class RAGService:
         )
         try:
             response = await self._openai_client.chat.completions.create(
-                model=self.settings.llm.default_model,
+                model=getattr(
+                    self.settings,
+                    "rag_generation_model",
+                    self.settings.llm.default_model,
+                ),
                 temperature=0,
                 max_tokens=150,
                 messages=[
@@ -405,24 +431,27 @@ class RAGService:
                 },
             ]
             generate_started = time.perf_counter()
-            with trace_span("rag.generate"):
-                stream = await self._openai_client.chat.completions.create(
-                    model=getattr(
-                        self.settings,
-                        "rag_generation_model",
-                        self.settings.llm.default_model,
-                    ),
-                    temperature=0.1,
-                    max_tokens=500,
-                    messages=messages,
-                    stream=True,
-                )
-                chunks: list[str] = []
-                async for chunk in stream:
-                    delta = chunk.choices[0].delta.content
-                    if delta:
-                        chunks.append(delta)
-                        yield {"type": "token", "delta": delta}
+            try:
+                with trace_span("rag.generate"):
+                    stream = await self._openai_client.chat.completions.create(
+                        model=getattr(
+                            self.settings,
+                            "rag_generation_model",
+                            self.settings.llm.default_model,
+                        ),
+                        temperature=0.1,
+                        max_tokens=self.generation_max_tokens,
+                        messages=messages,
+                        stream=True,
+                    )
+                    chunks: list[str] = []
+                    async for chunk in stream:
+                        delta = chunk.choices[0].delta.content
+                        if delta:
+                            chunks.append(delta)
+                            yield {"type": "token", "delta": delta}
+            except openai.OpenAIError as exc:
+                raise _provider_error(exc) from exc
             answer = normalize_citations(
                 "".join(chunks).strip(),
                 {source["id"] for source in retrieval["sources"]},
@@ -498,23 +527,26 @@ class RAGService:
         else:
             maximum = getattr(self.settings, "rag_max_sources", 5)
             context = self._numbered_context(candidates, maximum)
-            with trace_span("rag.generate"):
-                completion = await self._openai_client.chat.completions.create(
-                    model=getattr(
-                        self.settings,
-                        "rag_generation_model",
-                        self.settings.llm.default_model,
-                    ),
-                    temperature=0.1,
-                    max_tokens=500,
-                    messages=[
-                        {"role": "system", "content": RAG_GENERATION_PROMPT},
-                        {
-                            "role": "user",
-                            "content": f"Контекст:\n{context}\n\nВопрос:\n{question}",
-                        },
-                    ],
-                )
+            try:
+                with trace_span("rag.generate"):
+                    completion = await self._openai_client.chat.completions.create(
+                        model=getattr(
+                            self.settings,
+                            "rag_generation_model",
+                            self.settings.llm.default_model,
+                        ),
+                        temperature=0.1,
+                        max_tokens=self.generation_max_tokens,
+                        messages=[
+                            {"role": "system", "content": RAG_GENERATION_PROMPT},
+                            {
+                                "role": "user",
+                                "content": f"Контекст:\n{context}\n\nВопрос:\n{question}",
+                            },
+                        ],
+                    )
+            except openai.OpenAIError as exc:
+                raise _provider_error(exc) from exc
             response = normalize_citations(
                 (completion.choices[0].message.content or "").strip(),
                 set(range(1, min(len(candidates), maximum) + 1)),

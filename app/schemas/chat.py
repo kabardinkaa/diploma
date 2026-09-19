@@ -67,7 +67,7 @@ class ChatRequest(BaseModel):
                             "content": "Кратко объясни, что делать, если не работает корпоративная почта.",
                         },
                     ],
-                    "model": "openrouter/free",
+                    "model": "openai/gpt-5.4-mini",
                     "temperature": 0,
                     "max_tokens": 300,
                 },

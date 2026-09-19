@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from app.schemas.models import AVAILABLE_MODELS, ModelInfo
+from app.core.config import Settings, get_settings
+from app.schemas.models import ModelInfo
 
 router = APIRouter(tags=["models"])
 
@@ -13,5 +14,14 @@ router = APIRouter(tags=["models"])
         200: {"description": "Список моделей успешно получен"},
     },
 )
-async def get_models() -> list[ModelInfo]:
-    return AVAILABLE_MODELS
+async def get_models(settings: Settings = Depends(get_settings)) -> list[ModelInfo]:
+    base_url = settings.llm.base_url or ""
+    provider = "openrouter" if "openrouter" in base_url.lower() else "openai"
+    model_ids = dict.fromkeys(
+        (
+            settings.llm.default_model,
+            settings.rag_generation_model,
+            settings.agent_model,
+        )
+    )
+    return [ModelInfo(id=model_id, provider=provider) for model_id in model_ids]

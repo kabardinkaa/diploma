@@ -13,22 +13,21 @@ services:
       CHAT_REPOSITORY: postgres
       AGENT_CHECKPOINTER: postgres
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/diploma
-      REDIS_URL: redis://redis:6379/0
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      OPENAI_MODEL: ${OPENAI_MODEL:-openai/gpt-5.4-mini}
+      AGENT_MODEL: ${AGENT_MODEL:-openai/gpt-5.4-mini}
       RAG_TRACING_ENABLED: ${RAG_TRACING_ENABLED:-true}
       RAG_GENERATION_MODEL: ${RAG_GENERATION_MODEL:-openai/gpt-5.4-mini}
+      RAG_MAX_TOKENS: ${RAG_MAX_TOKENS:-256}
       EMBEDDING_MODEL: intfloat/multilingual-e5-base
       EMBEDDING_BATCH_SIZE: 32
       EMBEDDING_CACHE_DIR: /app/.cache/embeddings
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
-      QDRANT_COLLECTION: documents
       EMBEDDING_DIM: 768
       RAG_DATA_DIR: /app/data
-      RAG_COLLECTION: rag_block_03
       RAG_PRODUCTION_COLLECTION: ${RAG_PRODUCTION_COLLECTION:-corporate_rag}
       RAG_DOCSTORE_PATH: /app/.cache/rag/docstore.json
-      RAG_BAREMETAL_COLLECTION: rag_block_03_baremetal
       RAG_CHUNK_SIZE: 512
       RAG_CHUNK_OVERLAP: 64
       RAG_SIMILARITY_TOP_K: 3
@@ -40,8 +39,8 @@ services:
       RAG_RERANK_TOP_N: ${RAG_RERANK_TOP_N:-5}
       RAG_CONDENSE_ENABLED: ${RAG_CONDENSE_ENABLED:-true}
       RAG_MAX_SOURCES: ${RAG_MAX_SOURCES:-5}
-      NO_PROXY: localhost,127.0.0.1,redis,app,phoenix,postgres,qdrant
-      no_proxy: localhost,127.0.0.1,redis,app,phoenix,postgres,qdrant
+      NO_PROXY: localhost,127.0.0.1,app,phoenix,postgres,qdrant
+      no_proxy: localhost,127.0.0.1,app,phoenix,postgres,qdrant
     volumes:
       - ./.cache/embeddings:/app/.cache/embeddings
       - rag-state:/app/.cache/rag
@@ -49,12 +48,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
       phoenix:
         condition: service_started
       qdrant:
         condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -77,7 +76,6 @@ services:
         INSTALL_EXTRAS: tracing
     image: llm-service:v1
     command: ["python", "scripts/ingest.py", "/app/data", "--mode", "incremental"]
-    profiles: ["tools"]
     env_file:
       - .env
     environment:
@@ -91,6 +89,8 @@ services:
       RAG_CHUNKING_STRATEGY: recursive
       RAG_CHUNK_SIZE: 512
       RAG_CHUNK_OVERLAP: 64
+      NO_PROXY: localhost,127.0.0.1,app,phoenix,postgres,qdrant
+      no_proxy: localhost,127.0.0.1,app,phoenix,postgres,qdrant
     volumes:
       - ./.cache/embeddings:/app/.cache/embeddings
       - rag-state:/app/.cache/rag
@@ -117,7 +117,7 @@ services:
         condition: service_healthy
     healthcheck:
       disable: true
-    restart: unless-stopped
+    restart: on-failure
 
   postgres:
     image: postgres:16-alpine
@@ -155,17 +155,6 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  redis:
-    image: redis:7.4-alpine
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-    restart: unless-stopped
-
   phoenix:
     image: arizephoenix/phoenix:latest
     ports:
@@ -181,5 +170,4 @@ volumes:
   rag-state: {}
   pg-data: {}
   qdrant-storage: {}
-  redis_data: {}
   phoenix-data: {}

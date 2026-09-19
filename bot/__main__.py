@@ -10,20 +10,24 @@ from bot.handlers import router as handlers_router
 from bot.services.broadcast import broadcast_worker
 from bot.services.backend_client import BackendClient, build_http_client
 
+PLACEHOLDER_BOT_TOKEN = "change-me-telegram-bot-token"
+PLACEHOLDER_INTERNAL_TOKEN = "change-me-internal-token"
+
 
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
     settings = get_bot_settings()
 
-    if not settings.bot_token:
-        raise RuntimeError(
-            "BOT_TOKEN is not set. Create Telegram bot via @BotFather "
-            "and put token into .env"
+    bot_token = settings.bot_token.strip()
+    if not bot_token or bot_token == PLACEHOLDER_BOT_TOKEN:
+        logging.warning(
+            "Telegram bot is disabled: set a real BOT_TOKEN to enable polling"
         )
+        return
 
     bot = Bot(
-        token=settings.bot_token,
+        token=bot_token,
         default=DefaultBotProperties(parse_mode="HTML"),
     )
 
@@ -31,11 +35,12 @@ async def main() -> None:
     dispatcher.include_router(handlers_router)
 
     http_client = build_http_client()
+    internal_token = settings.internal_token.strip()
     backend = BackendClient(
         http_client=http_client,
         base_url=settings.backend_url,
         admin_token=settings.admin_token,
-        internal_token=settings.internal_token,
+        internal_token=internal_token,
     )
 
     # aiogram будет прокидывать backend в handlers по имени параметра:
@@ -46,9 +51,14 @@ async def main() -> None:
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        worker_task = asyncio.create_task(
-            broadcast_worker(bot=bot, backend=backend)
-        )
+        if internal_token and internal_token != PLACEHOLDER_INTERNAL_TOKEN:
+            worker_task = asyncio.create_task(
+                broadcast_worker(bot=bot, backend=backend)
+            )
+        else:
+            logging.info(
+                "Broadcast worker is disabled: set a real INTERNAL_TOKEN to enable it"
+            )
         await dispatcher.start_polling(bot)
     finally:
         if worker_task is not None:

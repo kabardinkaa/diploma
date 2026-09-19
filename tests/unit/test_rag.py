@@ -4,11 +4,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import httpx
+import openai
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from app.core.exceptions import LLMError
 from app.routers.rag import router
 from app.services.rag import RAGService, normalize_citations, sanitize_sse_payload
 from app.services.rag_common import FALLBACK_ANSWER
@@ -26,6 +29,7 @@ def rag_settings(min_score: float = 0.5) -> SimpleNamespace:
         rag_reranker_enabled=False,
         rag_rerank_top_n=5,
         rag_max_sources=5,
+        rag_max_tokens=256,
         rag_condense_enabled=True,
         embedding_model="intfloat/multilingual-e5-base",
         embedding_batch_size=8,
@@ -191,6 +195,32 @@ async def test_answer_contract_citations_sources_and_top_score() -> None:
         "snippet": "VPN details",
     }
     assert create.await_args.kwargs["stream"] is True
+    assert create.await_args.kwargs["max_tokens"] == 256
+
+
+@pytest.mark.asyncio
+async def test_provider_status_error_uses_domain_error() -> None:
+    service = make_service()
+    service._built = True
+    service._retriever = SimpleNamespace(
+        aretrieve=AsyncMock(return_value=[source_node("VPN details", "vpn.pdf", 0.93)])
+    )
+    provider_error = openai.APIStatusError(
+        "Payment required",
+        response=httpx.Response(
+            402,
+            request=httpx.Request("POST", "https://provider.test/chat/completions"),
+        ),
+        body={"error": {"message": "insufficient credits"}},
+    )
+    service._openai_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=AsyncMock(side_effect=provider_error))
+        )
+    )
+
+    with pytest.raises(LLMError, match="Ошибка при обращении к LLM-провайдеру"):
+        await service.answer("Почему не открывается внутренний сайт?")
 
 
 @pytest.mark.asyncio
