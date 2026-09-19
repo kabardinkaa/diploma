@@ -1,7 +1,7 @@
 import json
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -9,10 +9,15 @@ from app.chat.deps import ChatServiceDep
 from app.chat.domain import Chat, ChatMessage
 from app.chat.media import media_to_part
 from app.chat.service import ModerationBlockedError
+from app.admin.deps import require_internal_in_public
 from app.services.rag import sanitize_sse_payload
 
 
-router = APIRouter(prefix="/chats", tags=["chat-history"])
+router = APIRouter(
+    prefix="/chats",
+    tags=["chat-history"],
+    dependencies=[Depends(require_internal_in_public)],
+)
 
 
 class CreateChatIn(BaseModel):

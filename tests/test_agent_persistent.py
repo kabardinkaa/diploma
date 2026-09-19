@@ -12,7 +12,9 @@ from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
+from pydantic import SecretStr
 
+from app.core.config import get_settings
 from app.services import agent_persistent
 from app.services.agent_persistent import agent_lifespan, build_agent
 from app.routers.agent import router as agent_router
@@ -185,7 +187,9 @@ def test_sse_uses_updates_and_messages_and_serializes_interrupt() -> None:
     class FakeGraph:
         async def astream(self, graph_input, *, config, stream_mode):
             assert stream_mode == ["updates", "messages"]
-            assert config["configurable"]["thread_id"] == "stream-thread"
+            assert config["configurable"]["thread_id"].startswith("public:")
+            assert config["configurable"]["thread_id"].endswith(":stream-thread")
+            assert config["configurable"]["user_role"] == "read-only"
             yield "updates", {
                 "__interrupt__": [
                     {
@@ -236,6 +240,9 @@ async def test_real_sqlite_sse_interrupt_and_two_resume_branches(tmp_path) -> No
         api = FastAPI()
         api.state.persistent_agent = graph
         api.include_router(agent_router)
+        api.dependency_overrides[get_settings] = lambda: SimpleNamespace(
+            admin_token=SecretStr("test-admin-token")
+        )
         transport = httpx.ASGITransport(app=api)
 
         async with httpx.AsyncClient(
@@ -253,10 +260,12 @@ async def test_real_sqlite_sse_interrupt_and_two_resume_branches(tmp_path) -> No
             approve_start = await client.post(
                 "/agent/stream",
                 json={"thread_id": "sse-approve", **initial_payload},
+                headers={"X-Admin-Token": "test-admin-token"},
             )
             reject_start = await client.post(
                 "/agent/stream",
                 json={"thread_id": "sse-reject", **initial_payload},
+                headers={"X-Admin-Token": "test-admin-token"},
             )
             approve_resume = await client.post(
                 "/agent/stream",
@@ -265,6 +274,7 @@ async def test_real_sqlite_sse_interrupt_and_two_resume_branches(tmp_path) -> No
                     "resume": True,
                     "user_role": "write-with-approve",
                 },
+                headers={"X-Admin-Token": "test-admin-token"},
             )
             reject_resume = await client.post(
                 "/agent/stream",
@@ -273,6 +283,7 @@ async def test_real_sqlite_sse_interrupt_and_two_resume_branches(tmp_path) -> No
                     "resume": False,
                     "user_role": "write-with-approve",
                 },
+                headers={"X-Admin-Token": "test-admin-token"},
             )
 
         for response in (approve_start, reject_start, approve_resume, reject_resume):
@@ -293,6 +304,6 @@ async def test_real_sqlite_sse_interrupt_and_two_resume_branches(tmp_path) -> No
 
         assert _sse_payloads(approve_resume)[-1]["type"] == "done"
         assert _sse_payloads(reject_resume)[-1]["type"] == "done"
-        assert (await graph.aget_state(_config("sse-approve"))).values["sent"] is True
-        assert (await graph.aget_state(_config("sse-reject"))).values["sent"] is False
+        assert (await graph.aget_state(_config("admin:sse-approve"))).values["sent"] is True
+        assert (await graph.aget_state(_config("admin:sse-reject"))).values["sent"] is False
         send.assert_awaited_once()

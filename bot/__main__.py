@@ -9,6 +9,7 @@ from bot.config import get_bot_settings
 from bot.handlers import router as handlers_router
 from bot.services.broadcast import broadcast_worker
 from bot.services.backend_client import BackendClient, build_http_client
+from bot.services.quota import BotUserQuota
 
 PLACEHOLDER_BOT_TOKEN = "change-me-telegram-bot-token"
 PLACEHOLDER_INTERNAL_TOKEN = "change-me-internal-token"
@@ -41,6 +42,11 @@ async def main() -> None:
         base_url=settings.backend_url,
         admin_token=settings.admin_token,
         internal_token=internal_token,
+        user_quota=BotUserQuota(
+            requests=settings.rate_limit_requests,
+            window_seconds=settings.rate_limit_window_seconds,
+            daily_quota=settings.daily_quota,
+        ),
     )
 
     # aiogram будет прокидывать backend в handlers по имени параметра:

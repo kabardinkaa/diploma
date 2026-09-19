@@ -6,6 +6,8 @@ from pydantic import ValidationError
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.admin.deps import AdminDep
+from app.deps.providers import SettingsDep
 from app.deps.providers import LLMServiceDep
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Message
 
@@ -18,6 +20,15 @@ class BatchChatRequest(BaseModel):
         min_length=1,
         max_length=20,
         description="Список запросов для batch-обработки",
+    )
+
+
+def _apply_server_limits(request: ChatRequest, settings: SettingsDep) -> ChatRequest:
+    return request.model_copy(
+        update={
+            "model": settings.llm.default_model,
+            "max_tokens": settings.chat_max_tokens,
+        }
     )
 
 
@@ -36,6 +47,7 @@ class BatchChatRequest(BaseModel):
 async def chat(
     request: Request,
     service: LLMServiceDep,
+    settings: SettingsDep,
 ) -> ChatResponse:
     content_type = request.headers.get("content-type", "")
 
@@ -58,7 +70,7 @@ async def chat(
         except ValidationError as exc:
             raise RequestValidationError(exc.errors()) from exc
 
-    return await service.complete(chat_request)
+    return await service.complete(_apply_server_limits(chat_request, settings))
 
 
 @router.post(
@@ -75,7 +87,10 @@ async def chat(
 async def chat_stream(
     request: ChatRequest,
     service: LLMServiceDep,
+    settings: SettingsDep,
 ) -> StreamingResponse:
+    request = _apply_server_limits(request, settings)
+
     async def event_generator():
         async for delta in service.stream(request):
             if delta.content is not None:
@@ -110,8 +125,12 @@ async def chat_stream(
 async def chat_batch(
     request: BatchChatRequest,
     service: LLMServiceDep,
+    settings: SettingsDep,
+    _: AdminDep,
 ):
-    results = await service.batch(request.requests)
+    results = await service.batch(
+        [_apply_server_limits(item, settings) for item in request.requests]
+    )
     return {
         "results": [
             item.model_dump() if hasattr(item, "model_dump") else item

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import Command
 
 from app.schemas.agent import AgentMessage, AgentStreamRequest
+from app.deps.providers import SettingsDep
+from app.security.tokens import secret_matches
 
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -42,12 +45,34 @@ def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-async def _events(request: Request, payload: AgentStreamRequest) -> AsyncIterator[str]:
+def _agent_context(
+    request: Request,
+    payload: AgentStreamRequest,
+    settings: SettingsDep,
+    admin_token: str | None,
+) -> tuple[str, str]:
+    if admin_token is not None:
+        if not secret_matches(admin_token, settings.admin_token):
+            raise HTTPException(status_code=403, detail="Invalid admin token")
+        return f"admin:{payload.thread_id}", "write-with-approve"
+
+    client_host = request.client.host if request.client else "unknown"
+    client_scope = hashlib.sha256(client_host.encode("utf-8")).hexdigest()[:16]
+    return f"public:{client_scope}:{payload.thread_id}", "read-only"
+
+
+async def _events(
+    request: Request,
+    payload: AgentStreamRequest,
+    *,
+    effective_thread_id: str,
+    user_role: str,
+) -> AsyncIterator[str]:
     graph = request.app.state.persistent_agent
     config = {
         "configurable": {
-            "thread_id": payload.thread_id,
-            "user_role": payload.user_role,
+            "thread_id": effective_thread_id,
+            "user_role": user_role,
         }
     }
     if payload.resume is not None:
@@ -58,7 +83,7 @@ async def _events(request: Request, payload: AgentStreamRequest) -> AsyncIterato
             "messages": [
                 _message_from_request(message) for message in payload.input.messages
             ],
-            "user_role": payload.user_role,
+            "user_role": user_role,
             "tool_results": [],
         }
 
@@ -81,9 +106,22 @@ async def _events(request: Request, payload: AgentStreamRequest) -> AsyncIterato
 async def agent_stream(
     payload: AgentStreamRequest,
     request: Request,
+    settings: SettingsDep,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
 ) -> StreamingResponse:
+    effective_thread_id, user_role = _agent_context(
+        request,
+        payload,
+        settings,
+        x_admin_token,
+    )
     return StreamingResponse(
-        _events(request, payload),
+        _events(
+            request,
+            payload,
+            effective_thread_id=effective_thread_id,
+            user_role=user_role,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

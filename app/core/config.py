@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.security.tokens import is_usable_secret
+
 
 class LLMSettings(BaseSettings):
     """
@@ -85,6 +87,26 @@ class Settings(BaseSettings):
     admin_token: SecretStr | None = Field(default=None, alias="ADMIN_TOKEN")
     internal_token: SecretStr | None = Field(default=None, alias="INTERNAL_TOKEN")
     moderation_openai_enabled: bool = Field(default=False, alias="MODERATION_OPENAI_ENABLED")
+    chat_max_tokens: int = Field(default=256, ge=1, le=4096, alias="CHAT_MAX_TOKENS")
+    public_rate_limit_enabled: bool = Field(
+        default=True,
+        alias="PUBLIC_RATE_LIMIT_ENABLED",
+    )
+    public_rate_limit_requests: int = Field(
+        default=30,
+        ge=1,
+        alias="PUBLIC_RATE_LIMIT_REQUESTS",
+    )
+    public_rate_limit_window_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        alias="PUBLIC_RATE_LIMIT_WINDOW_SECONDS",
+    )
+    public_max_concurrent_requests: int = Field(
+        default=4,
+        ge=1,
+        alias="PUBLIC_MAX_CONCURRENT_REQUESTS",
+    )
     embedding_model: str = Field(
         default="intfloat/multilingual-e5-base",
         alias="EMBEDDING_MODEL",
@@ -230,6 +252,20 @@ class Settings(BaseSettings):
     def model_post_init(self, __context: object) -> None:
         if self.rag_chunk_overlap >= self.rag_chunk_size:
             raise ValueError("RAG_CHUNK_OVERLAP must be smaller than RAG_CHUNK_SIZE")
+        if self.environment.lower() in {"prod", "production", "public"}:
+            missing = [
+                name
+                for name, value in (
+                    ("ADMIN_TOKEN", self.admin_token),
+                    ("INTERNAL_TOKEN", self.internal_token),
+                )
+                if not is_usable_secret(value)
+            ]
+            if missing:
+                joined = ", ".join(missing)
+                raise ValueError(
+                    f"Public deployment requires non-placeholder secrets: {joined}"
+                )
 
 @lru_cache
 def get_settings() -> Settings:

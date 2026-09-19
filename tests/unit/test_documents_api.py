@@ -6,11 +6,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.routers import documents
+from app.admin.deps import require_admin
 
 
 def make_client(tmp_path: Path, monkeypatch) -> tuple[TestClient, AsyncMock]:
     api = FastAPI()
     api.include_router(documents.router)
+    api.dependency_overrides[require_admin] = lambda: None
     settings = SimpleNamespace(rag_data_dir=tmp_path)
     monkeypatch.setattr(documents, "get_settings", lambda: settings)
     ingest = AsyncMock()

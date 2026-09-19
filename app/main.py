@@ -25,6 +25,7 @@ from app.routers import agent, chat, documents, health, models, rag
 from app.chat.routes import router as chat_history_router
 from app.services.rag import RAGService
 from app.services.agent_persistent import agent_lifespan
+from app.security.rate_limit import PublicRateLimitMiddleware
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = structlog.get_logger("llm-service")
@@ -89,6 +90,21 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
     default_response_class=SafeJSONResponse,
+)
+
+
+app.add_middleware(
+    PublicRateLimitMiddleware,
+    requests=settings.public_rate_limit_requests,
+    window_seconds=settings.public_rate_limit_window_seconds,
+    max_concurrent=settings.public_max_concurrent_requests,
+    enabled=settings.public_rate_limit_enabled,
+    paths={
+        ("POST", "/chat"),
+        ("POST", "/chat/stream"),
+        ("POST", "/rag/query"),
+        ("POST", "/agent/stream"),
+    },
 )
 
 

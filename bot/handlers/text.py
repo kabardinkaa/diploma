@@ -18,6 +18,12 @@ async def send_backend_error(
     if isinstance(error, RuntimeError) and str(error) == "moderation_blocked":
         text = "Запрос нарушает правила. Попробуйте переформулировать."
 
+    elif isinstance(error, RuntimeError) and str(error) == "bot_rate_limit":
+        text = "Слишком много запросов. Подождите минуту."
+
+    elif isinstance(error, RuntimeError) and str(error) == "bot_daily_quota":
+        text = "Дневной лимит demo-бота исчерпан."
+
     elif isinstance(error, httpx.ConnectError):
         text = "Сервис сейчас недоступен. Попробуйте позже."
 

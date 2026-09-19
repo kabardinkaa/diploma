@@ -24,6 +24,13 @@ class BotSettings(BaseSettings):
     admin_token: str = Field(default="", alias="ADMIN_TOKEN")
     internal_token: str = Field(default="", alias="INTERNAL_TOKEN")
     bot_admin_ids: list[int] = Field(default_factory=list, alias="BOT_ADMIN_IDS")
+    rate_limit_requests: int = Field(default=10, ge=1, alias="BOT_RATE_LIMIT_REQUESTS")
+    rate_limit_window_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        alias="BOT_RATE_LIMIT_WINDOW_SECONDS",
+    )
+    daily_quota: int = Field(default=100, ge=1, alias="BOT_DAILY_QUOTA")
 
     @field_validator("bot_admin_ids", mode="before")
     @classmethod

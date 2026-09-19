@@ -52,6 +52,7 @@ def _build_model() -> ChatOpenAI:
     return ChatOpenAI(
         model=settings.agent_model,
         temperature=0,
+        max_tokens=settings.chat_max_tokens,
         api_key=settings.llm.api_key,
         base_url=settings.llm.base_url,
         timeout=settings.llm.request_timeout,

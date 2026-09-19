@@ -50,6 +50,7 @@ def get_chat_service(
         moderation_service=moderation_service,
         context_window=settings.chat_context_window,
         rag_service=getattr(request.app.state, "rag_service", None),
+        max_tokens=settings.chat_max_tokens,
     )
 
 

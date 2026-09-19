@@ -4,6 +4,8 @@ from uuid import UUID
 
 import httpx
 
+from bot.services.quota import BotUserQuota
+
 
 class BackendClient:
     """Асинхронный клиент Telegram-бота для работы с chat-service."""
@@ -14,12 +16,15 @@ class BackendClient:
         base_url: str,
         admin_token: str = "",
         internal_token: str = "",
+        user_quota: BotUserQuota | None = None,
     ) -> None:
         self.http_client = http_client
         self.base_url = base_url.rstrip("/")
         self.admin_token = admin_token
         self.internal_token = internal_token
+        self.user_quota = user_quota
         self._chat_cache: dict[tuple[str, str], UUID] = {}
+        self._chat_owners: dict[UUID, str] = {}
         self.last_message_id: UUID | None = None
         self.last_sources: list[dict] = []
         self.last_rag_meta: dict = {}
@@ -32,7 +37,9 @@ class BackendClient:
         cache_key = (owner_external_id, interface)
 
         if cache_key in self._chat_cache:
-            return self._chat_cache[cache_key]
+            chat_id = self._chat_cache[cache_key]
+            self._chat_owners[chat_id] = owner_external_id
+            return chat_id
 
         response = await self.http_client.post(
             f"{self.base_url}/chats",
@@ -44,6 +51,7 @@ class BackendClient:
                     "Отвечай понятно, вежливо и по существу."
                 ),
             },
+            headers=self._internal_headers(),
         )
         response.raise_for_status()
 
@@ -51,6 +59,7 @@ class BackendClient:
         chat_id = UUID(payload["chat_id"])
 
         self._chat_cache[cache_key] = chat_id
+        self._chat_owners[chat_id] = owner_external_id
         return chat_id
 
     async def send_message(
@@ -60,6 +69,10 @@ class BackendClient:
         media: bytes | None = None,
         mime: str | None = None,
     ) -> AsyncIterator[str]:
+        owner_external_id = self._chat_owners.get(chat_id)
+        if self.user_quota is not None and owner_external_id is not None:
+            await self.user_quota.check(owner_external_id)
+
         self.last_sources = []
         self.last_rag_meta = {}
         multipart_parts: dict[str, tuple] = {
@@ -77,6 +90,7 @@ class BackendClient:
             "POST",
             f"{self.base_url}/chats/{chat_id}/messages",
             files=multipart_parts,
+            headers=self._internal_headers(),
             timeout=httpx.Timeout(
                 connect=10.0,
                 read=600.0,
@@ -130,6 +144,7 @@ class BackendClient:
     async def clear_messages(self, chat_id: UUID) -> None:
         response = await self.http_client.delete(
             f"{self.base_url}/chats/{chat_id}/messages",
+            headers=self._internal_headers(),
         )
         response.raise_for_status()
 
@@ -142,12 +157,14 @@ class BackendClient:
         response = await self.http_client.post(
             f"{self.base_url}/chats/{chat_id}/messages/{message_id}/feedback",
             json={"value": value},
+            headers=self._internal_headers(),
         )
         response.raise_for_status()
 
     async def set_handoff(self, chat_id: UUID) -> None:
         response = await self.http_client.post(
             f"{self.base_url}/chats/{chat_id}/handoff",
+            headers=self._internal_headers(),
         )
         response.raise_for_status()
 
@@ -155,6 +172,8 @@ class BackendClient:
         return {"X-Admin-Token": self.admin_token}
 
     def _internal_headers(self) -> dict[str, str]:
+        if not self.internal_token:
+            return {}
         return {"X-Internal-Token": self.internal_token}
 
     async def admin_stats(self) -> dict:

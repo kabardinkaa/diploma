@@ -18,6 +18,7 @@ async def test_get_or_create_chat_caches_chat_id() -> None:
 
         assert request.method == "POST"
         assert request.url.path == "/chats"
+        assert request.headers["X-Internal-Token"] == "internal-secret"
 
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["owner_external_id"] == "123"
@@ -34,6 +35,7 @@ async def test_get_or_create_chat_caches_chat_id() -> None:
         backend = BackendClient(
             http_client=http_client,
             base_url="http://backend.test",
+            internal_token="internal-secret",
         )
 
         first = await backend.get_or_create_chat(

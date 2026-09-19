@@ -19,7 +19,11 @@ class AgentStreamRequest(BaseModel):
     thread_id: str = Field(min_length=1, max_length=200)
     input: AgentInput | None = None
     resume: bool | None = None
-    user_role: UserRole = "write-with-approve"
+    user_role: UserRole = Field(
+        default="read-only",
+        description="Deprecated client hint; the server determines the effective role.",
+        deprecated=True,
+    )
 
     @model_validator(mode="after")
     def validate_invocation(self) -> "AgentStreamRequest":

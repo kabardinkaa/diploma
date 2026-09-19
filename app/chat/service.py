@@ -38,12 +38,14 @@ class ChatService:
         moderation_service: ModerationService | None = None,
         context_window: int = 10,
         rag_service: Any | None = None,
+        max_tokens: int = 256,
     ) -> None:
         self.repository = repository
         self.llm_service = llm_service
         self.moderation_service = moderation_service or ModerationService()
         self.context_window = context_window
         self.rag_service = rag_service
+        self.max_tokens = max_tokens
         self.last_assistant_message_id: UUID | None = None
         self.last_sources: list[dict[str, Any]] = []
         self.last_rag_meta: dict[str, Any] = {
@@ -332,7 +334,7 @@ class ChatService:
         request = ChatRequest(
             messages=llm_messages,
             temperature=0.1,
-            max_tokens=500,
+            max_tokens=self.max_tokens,
         )
 
         assistant_chunks: list[str] = []

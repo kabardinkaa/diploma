@@ -7,6 +7,7 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, model_validator
 
+from app.admin.deps import AdminDep
 from app.core.config import get_settings
 from app.services.ingestion import (
     SUPPORTED_EXTENSIONS,
@@ -68,6 +69,7 @@ async def _run_reindex(payload: ReindexRequest) -> None:
 @router.post("/upload", status_code=202)
 async def upload_document(
     background_tasks: BackgroundTasks,
+    _: AdminDep,
     file: UploadFile = File(...),
     category: str = Form(default="uploads"),
 ) -> dict[str, str]:
@@ -100,6 +102,7 @@ async def upload_document(
 async def reindex_documents(
     payload: ReindexRequest,
     background_tasks: BackgroundTasks,
+    _: AdminDep,
 ) -> dict[str, str]:
     background_tasks.add_task(_run_reindex, payload)
     return {"status": "accepted", "mode": payload.mode}
