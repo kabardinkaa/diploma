@@ -6,12 +6,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import httpx
 from llama_index.readers.file import (
     DocxReader,
     HTMLTagReader,
     MarkdownReader,
     PyMuPDFReader,
 )
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.core.config import LLMSettings, Settings
 from app.services.ingestion import (
@@ -160,3 +162,36 @@ async def test_failed_file_is_renamed_and_does_not_abort(
     assert report.failed_files == 1
     assert not path.exists()
     assert path.with_name("broken.pdf.failed").exists()
+
+
+@pytest.mark.asyncio
+async def test_full_reset_ignores_only_missing_collection(tmp_path: Path) -> None:
+    instance = service(tmp_path)
+    instance.docstore_path.parent.mkdir(parents=True)
+    instance.docstore_path.write_text("{}", encoding="utf-8")
+    instance._aclient.collection_exists.return_value = True
+    instance._aclient.delete_collection.side_effect = UnexpectedResponse(
+        status_code=404,
+        reason_phrase="Not Found",
+        content=b"collection not found",
+        headers=httpx.Headers(),
+    )
+
+    await instance._reset()
+
+    assert not instance.docstore_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_full_reset_propagates_qdrant_outage(tmp_path: Path) -> None:
+    instance = service(tmp_path)
+    instance.docstore_path.parent.mkdir(parents=True)
+    instance.docstore_path.write_text("{}", encoding="utf-8")
+    instance._aclient.collection_exists.side_effect = TimeoutError(
+        "http://qdrant:6333 unavailable"
+    )
+
+    with pytest.raises(TimeoutError):
+        await instance._reset()
+
+    assert instance.docstore_path.exists()

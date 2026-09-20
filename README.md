@@ -389,6 +389,8 @@ Semaphore = floor(RPM / 60 * 0.8)
 * Добавлены endpoints:
 
   * `GET /health`
+  * `GET /health/live`
+  * `GET /health/ready`
   * `GET /models`
   * `POST /chat`
   * `POST /chat/stream`
@@ -415,8 +417,15 @@ python -m uvicorn app.main:app --reload --port 8000
 
 ### Проверка health endpoint
 
+`GET /health` сохранён как совместимый alias для lightweight liveness probe.
+Он, как и `GET /health/live`, проверяет только доступность процесса API.
+`GET /health/ready` отдельно проверяет Postgres, Qdrant и наличие production
+collection `corporate_rag`; при недоступности обязательной зависимости он
+возвращает структурированный ответ с HTTP 503.
+
 ```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/health"
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/health/live"
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/health/ready"
 ```
 
 Ожидаемый ответ:
@@ -557,6 +566,8 @@ http://127.0.0.1:8000/docs
 В Swagger отображаются endpoints:
 
 * `GET /health`
+* `GET /health/live`
+* `GET /health/ready`
 * `GET /models`
 * `POST /chat`
 * `POST /chat/stream`

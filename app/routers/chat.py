@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.admin.deps import AdminDep
+from app.core.sse import sse_error_events
 from app.deps.providers import SettingsDep
 from app.deps.providers import LLMServiceDep
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Message
@@ -92,12 +93,17 @@ async def chat_stream(
     request = _apply_server_limits(request, settings)
 
     async def event_generator():
-        async for delta in service.stream(request):
-            if delta.content is not None:
-                yield f"data: {delta.content}\n\n"
+        try:
+            async for delta in service.stream(request):
+                if delta.content is not None:
+                    yield f"data: {delta.content}\n\n"
 
-            if delta.usage is not None:
-                yield f"data: {delta.model_dump_json(exclude_none=True)}\n\n"
+                if delta.usage is not None:
+                    yield f"data: {delta.model_dump_json(exclude_none=True)}\n\n"
+        except Exception as exc:
+            for event in sse_error_events(exc):
+                yield event
+            return
 
         yield "data: [DONE]\n\n"
 

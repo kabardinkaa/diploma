@@ -10,8 +10,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from qdrant_client.http.exceptions import UnexpectedResponse
 
-from app.core.exceptions import LLMError
+from app.core.exceptions import LLMError, RAGInfrastructureError
 from app.routers.rag import router
 from app.services.rag import RAGService, normalize_citations, sanitize_sse_payload
 from app.services.rag_common import FALLBACK_ANSWER
@@ -246,6 +247,60 @@ async def test_low_score_fallback_skips_llm_and_hides_sources() -> None:
 
 
 @pytest.mark.asyncio
+async def test_empty_retrieval_is_a_normal_fallback() -> None:
+    service = make_service()
+    service._built = True
+    service._retriever = SimpleNamespace(aretrieve=AsyncMock(return_value=[]))
+    create = AsyncMock()
+    service._openai_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+
+    result = await service.answer("В базе есть ответ?")
+
+    assert result == {
+        "answer": FALLBACK_ANSWER,
+        "top_score": 0.0,
+        "confident": False,
+        "sources": [],
+    }
+    create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "qdrant_error",
+    [
+        TimeoutError("http://qdrant:6333 timed out"),
+        UnexpectedResponse(
+            status_code=401,
+            reason_phrase="Unauthorized",
+            content=b'{"error":"api-key=super-secret"}',
+            headers=httpx.Headers(),
+        ),
+        UnexpectedResponse(
+            status_code=500,
+            reason_phrase="Server Error",
+            content=b'{"error":"internal qdrant details"}',
+            headers=httpx.Headers(),
+        ),
+    ],
+    ids=["timeout", "auth", "server"],
+)
+async def test_qdrant_failures_are_not_masked_as_empty_retrieval(
+    qdrant_error: Exception,
+) -> None:
+    service = make_service()
+    service._built = True
+    service._retriever = SimpleNamespace(
+        aretrieve=AsyncMock(side_effect=qdrant_error)
+    )
+
+    with pytest.raises(RAGInfrastructureError):
+        await service.answer("Как подключить VPN?")
+
+
+@pytest.mark.asyncio
 async def test_condense_follow_up_and_safe_failure_fallback() -> None:
     service = make_service()
     response = SimpleNamespace(
@@ -321,3 +376,26 @@ def test_rag_endpoint_uses_startup_service_and_validates_question() -> None:
     assert response.json()["confident"] is True
     api.state.rag_service.answer.assert_awaited_once_with("VPN?")
     assert blank.status_code == 422
+
+
+def test_rag_endpoint_returns_safe_structured_503() -> None:
+    api = FastAPI()
+    api.include_router(router)
+    service = FakeAPIService()
+    service.answer.side_effect = RAGInfrastructureError()
+    api.state.rag_service = service
+
+    response = TestClient(api).post(
+        "/rag/query",
+        json={"question": "Как подключить VPN?"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": {
+            "code": "rag_unavailable",
+            "message": "Сервис поиска по базе знаний временно недоступен",
+        }
+    }
+    assert "qdrant" not in response.text.lower()
+    assert "super-secret" not in response.text

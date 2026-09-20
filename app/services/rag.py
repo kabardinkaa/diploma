@@ -16,7 +16,13 @@ from openai import AsyncOpenAI
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
+from app.core.exceptions import (
+    LLMAuthError,
+    LLMError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+    RAGInfrastructureError,
+)
 from app.observability.tracing import set_span_attributes, trace_span
 from app.services.chunking import build_e5_embedding
 from app.services.rag_common import FALLBACK_ANSWER
@@ -136,6 +142,10 @@ class RAGService:
         )
 
     @property
+    def async_client(self) -> Any:
+        return self._aclient
+
+    @property
     def retrieval_top_k(self) -> int:
         return getattr(
             self.settings,
@@ -159,9 +169,12 @@ class RAGService:
 
     async def _collection_count(self) -> int:
         try:
+            exists = await self._aclient.collection_exists(self.collection_name)
+            if not exists:
+                return 0
             info = await self._aclient.get_collection(self.collection_name)
-        except Exception:
-            return 0
+        except Exception as exc:
+            raise RAGInfrastructureError() from exc
         return int(info.points_count or 0)
 
     async def _validate_existing_collection(self) -> None:
@@ -314,9 +327,12 @@ class RAGService:
             try:
                 active_retriever = retriever or self._retriever
                 nodes = list(await active_retriever.aretrieve(search_query))
-            except Exception:
-                logger.warning("rag.retrieve_failed", exc_info=True)
-                nodes = []
+            except Exception as exc:
+                logger.warning(
+                    "rag.retrieve_failed",
+                    error_type=type(exc).__name__,
+                )
+                raise RAGInfrastructureError() from exc
             candidates = [self._candidate(item) for item in nodes]
             top_score = max(
                 (candidate["dense_score"] for candidate in candidates),

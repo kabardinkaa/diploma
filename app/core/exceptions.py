@@ -20,3 +20,16 @@ class LLMTimeoutError(LLMError):
 class LLMAuthError(LLMError):
     code = "llm_auth"
     message = "Ошибка авторизации у LLM-провайдера"
+
+
+class InfrastructureError(Exception):
+    code = "infrastructure_unavailable"
+    message = "Обязательная зависимость временно недоступна"
+
+    def __init__(self) -> None:
+        super().__init__(self.message)
+
+
+class RAGInfrastructureError(InfrastructureError):
+    code = "rag_unavailable"
+    message = "Сервис поиска по базе знаний временно недоступен"

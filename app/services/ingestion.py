@@ -24,6 +24,7 @@ from llama_index.readers.file import (
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from pydantic import BaseModel, Field
 from qdrant_client import AsyncQdrantClient, QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.core.config import Settings
 from app.services.chunking import build_chunk_parser, build_e5_embedding
@@ -275,17 +276,18 @@ class IngestionService:
         return await asyncio.to_thread(self._parse_file_sync, path, root)
 
     async def _points_count(self) -> int:
-        try:
-            info = await self._aclient.get_collection(self.collection_name)
-        except Exception:
+        if not await self._aclient.collection_exists(self.collection_name):
             return 0
+        info = await self._aclient.get_collection(self.collection_name)
         return int(info.points_count or 0)
 
     async def _reset(self) -> None:
         try:
-            await self._aclient.delete_collection(self.collection_name)
-        except Exception:
-            pass
+            if await self._aclient.collection_exists(self.collection_name):
+                await self._aclient.delete_collection(self.collection_name)
+        except UnexpectedResponse as exc:
+            if exc.status_code != 404:
+                raise
         for path in (self.docstore_path, self.manifest_path):
             if path.exists():
                 path.unlink()

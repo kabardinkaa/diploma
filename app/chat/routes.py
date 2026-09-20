@@ -1,4 +1,3 @@
-import json
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -10,6 +9,7 @@ from app.chat.domain import Chat, ChatMessage
 from app.chat.media import media_to_part
 from app.chat.service import ModerationBlockedError
 from app.admin.deps import require_internal_in_public
+from app.core.sse import sse_error_events
 from app.services.rag import sanitize_sse_payload
 
 
@@ -164,18 +164,9 @@ async def send_message(
                 + "\n\n"
             )
 
-        except ValueError as exc:
-            payload = {
-                "type": "error",
-                "message": str(exc),
-            }
-
-            yield (
-                "data: "
-                + json.dumps(payload, ensure_ascii=False)
-                + "\n\n"
-            )
-            yield 'data: {"type":"done"}\n\n'
+        except Exception as exc:
+            for event in sse_error_events(exc):
+                yield event
 
     return StreamingResponse(
         event_generator(),

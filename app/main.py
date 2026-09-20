@@ -19,12 +19,19 @@ from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 
 from app.core.config import get_settings
-from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
+from app.core.exceptions import (
+    InfrastructureError,
+    LLMAuthError,
+    LLMError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
 from app.admin.routes import router as admin_router
 from app.routers import agent, chat, documents, health, models, rag
 from app.chat.routes import router as chat_history_router
 from app.services.rag import RAGService
 from app.services.agent_persistent import agent_lifespan
+from app.services.readiness import ReadinessService
 from app.security.rate_limit import PublicRateLimitMiddleware
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
@@ -67,6 +74,10 @@ async def lifespan(app: FastAPI):
     app.state.rag_service = RAGService(
         settings,
         openai_client=app.state.openai,
+    )
+    app.state.readiness_probe = ReadinessService(
+        settings,
+        app.state.rag_service.async_client,
     )
 
     async with agent_lifespan(settings) as persistent_agent:
@@ -173,6 +184,22 @@ async def llm_error_handler(_: Request, exc: LLMError) -> JSONResponse:
 
     return SafeJSONResponse(
         status_code=status_code,
+        content={
+            "error": {
+                "code": exc.code,
+                "message": exc.message,
+            }
+        },
+    )
+
+
+@app.exception_handler(InfrastructureError)
+async def infrastructure_error_handler(
+    _: Request,
+    exc: InfrastructureError,
+) -> JSONResponse:
+    return SafeJSONResponse(
+        status_code=503,
         content={
             "error": {
                 "code": exc.code,

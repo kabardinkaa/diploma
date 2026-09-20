@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import Command
 
 from app.schemas.agent import AgentMessage, AgentStreamRequest
+from app.core.sse import sse_error_events
 from app.deps.providers import SettingsDep
 from app.security.tokens import secret_matches
 
@@ -30,6 +31,8 @@ def _message_from_request(message: AgentMessage) -> Any:
 def _jsonable(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
+    if isinstance(value, BaseException):
+        return "internal_error"
     if isinstance(value, dict):
         return {str(key): _jsonable(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
@@ -99,7 +102,8 @@ async def _events(
             yield _sse({"type": event_type, "mode": mode, "data": _jsonable(event)})
         yield _sse({"type": "done", "thread_id": payload.thread_id})
     except Exception as exc:
-        yield _sse({"type": "error", "message": str(exc)})
+        for event in sse_error_events(exc):
+            yield event
 
 
 @router.post("/stream")

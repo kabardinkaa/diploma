@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import os
 import operator
+import structlog
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -29,6 +30,7 @@ from app.tools.graph_agent_tools import TOOLS, TOOLS_BY_NAME, send_telegram_mess
 
 
 WRITE_TOOL = "send_telegram_message"
+logger = structlog.get_logger("persistent-agent")
 SYSTEM_PROMPT = (
     "Ты агент внутренней техподдержки. Используй только доступные инструменты. "
     "Не утверждай, что пишущее действие выполнено, пока инструмент не вернул результат."
@@ -131,7 +133,12 @@ def build_agent(
                     result = str(await selected.ainvoke(args))
                     status = "success"
                 except Exception as exc:
-                    result = f"Ошибка инструмента '{name}': {exc}"
+                    logger.warning(
+                        "agent.tool_failed",
+                        tool=name,
+                        error_type=type(exc).__name__,
+                    )
+                    result = f"Инструмент '{name}' временно недоступен"
                     status = "error"
             output_messages.append(
                 ToolMessage(

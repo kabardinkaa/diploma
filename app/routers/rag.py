@@ -1,7 +1,9 @@
 from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 
+from app.core.exceptions import InfrastructureError
 from app.schemas.rag import RAGQueryRequest, RAGQueryResponse
 
 
@@ -24,5 +26,12 @@ RAGServiceDep = Annotated[RAGAnswerService, Depends(get_rag_service)]
 async def query_rag(
     payload: RAGQueryRequest,
     service: RAGServiceDep,
-) -> RAGQueryResponse:
-    return RAGQueryResponse.model_validate(await service.answer(payload.question))
+) -> RAGQueryResponse | JSONResponse:
+    try:
+        result = await service.answer(payload.question)
+    except InfrastructureError as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"code": exc.code, "message": exc.message}},
+        )
+    return RAGQueryResponse.model_validate(result)
