@@ -41,7 +41,7 @@ async def send_backend_error(
             text = "Не удалось обработать запрос."
 
     else:
-        text = f"Не удалось получить ответ: {error}"
+        text = "Не удалось получить ответ. Попробуйте позже."
 
     await message.answer(text)
 

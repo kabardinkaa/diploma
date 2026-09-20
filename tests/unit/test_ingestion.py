@@ -195,3 +195,30 @@ async def test_full_reset_propagates_qdrant_outage(tmp_path: Path) -> None:
         await instance._reset()
 
     assert instance.docstore_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_qdrant_pipeline_failure_does_not_persist_manifest(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    root = tmp_path / "data"
+    path = root / "vpn" / "guide.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("# VPN", encoding="utf-8")
+    instance = service(tmp_path)
+    mocker.patch.object(
+        instance,
+        "parse_file",
+        AsyncMock(return_value=[SimpleNamespace()]),
+    )
+    pipeline = FakePipeline(FakeDocstore())
+    pipeline.arun.side_effect = TimeoutError("private qdrant URL")
+    instance._docstore = pipeline.docstore
+    mocker.patch.object(instance, "_build_pipeline", return_value=pipeline)
+
+    with pytest.raises(TimeoutError):
+        await instance.ingest_path(root)
+
+    assert not instance.manifest_path.exists()
+    pipeline.docstore.persist.assert_not_called()

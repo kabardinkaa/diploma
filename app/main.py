@@ -25,6 +25,7 @@ from app.core.exceptions import (
     LLMError,
     LLMRateLimitError,
     LLMTimeoutError,
+    SafeInputError,
 )
 from app.admin.routes import router as admin_router
 from app.routers import agent, chat, documents, health, models, rag
@@ -200,6 +201,22 @@ async def infrastructure_error_handler(
 ) -> JSONResponse:
     return SafeJSONResponse(
         status_code=503,
+        content={
+            "error": {
+                "code": exc.code,
+                "message": exc.message,
+            }
+        },
+    )
+
+
+@app.exception_handler(SafeInputError)
+async def safe_input_error_handler(
+    _: Request,
+    exc: SafeInputError,
+) -> JSONResponse:
+    return SafeJSONResponse(
+        status_code=exc.status_code,
         content={
             "error": {
                 "code": exc.code,

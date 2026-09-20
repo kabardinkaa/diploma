@@ -10,6 +10,8 @@ from app.chat.media import media_to_part
 from app.chat.service import ModerationBlockedError
 from app.admin.deps import require_internal_in_public
 from app.core.sse import sse_error_events
+from app.core.config import get_settings
+from app.core.uploads import normalize_safe_filename
 from app.services.rag import sanitize_sse_payload
 
 
@@ -94,15 +96,17 @@ async def send_message(
     media_refs = None
 
     if media is not None:
+        safe_media_name = normalize_safe_filename(media.filename or "upload.bin")
         media_part = await media_to_part(
             media,
             llm_client=service.llm_service.openai,
+            max_bytes=get_settings().chat_media_max_bytes,
         )
 
         media_refs = {
             "mime": media.content_type,
             "size": media.size,
-            "filename": media.filename,
+            "filename": safe_media_name,
             "part": media_part,
         }
 

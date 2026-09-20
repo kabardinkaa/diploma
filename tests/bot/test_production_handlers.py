@@ -24,6 +24,20 @@ async def test_moderation_403_is_translated_for_user() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unknown_backend_error_does_not_leak_internal_details() -> None:
+    message = SimpleNamespace(answer=AsyncMock())
+
+    await send_backend_error(
+        message,
+        RuntimeError("http://internal:6333 token=secret"),
+    )
+
+    message.answer.assert_awaited_once_with(
+        "Не удалось получить ответ. Попробуйте позже."
+    )
+
+
+@pytest.mark.asyncio
 async def test_admin_filter_rejects_non_admin(monkeypatch) -> None:
     from bot.config import get_bot_settings
 

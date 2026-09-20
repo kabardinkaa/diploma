@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import re
+import tempfile
 import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -160,17 +161,24 @@ class IngestionService:
     def discover_files(self, root: Path) -> list[Path]:
         if not root.is_dir():
             raise FileNotFoundError(f"Ingestion root not found: {root}")
+        root_resolved = root.resolve()
         return sorted(
             path
             for path in root.rglob("*")
             if path.is_file()
+            and not path.is_symlink()
+            and path.resolve().is_relative_to(root_resolved)
             and path.suffix.lower() in SUPPORTED_EXTENSIONS
             and not path.name.endswith(".failed")
         )
 
     @staticmethod
     def _file_hash(path: Path) -> str:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(64 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _load_manifest(self) -> dict[str, str]:
         if not self.manifest_path.exists():
@@ -179,10 +187,25 @@ class IngestionService:
 
     def _persist_manifest(self, manifest: dict[str, str]) -> None:
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        self.manifest_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".manifest-",
+            suffix=".json",
+            dir=self.manifest_path.parent,
         )
+        temporary_path = Path(temporary_name)
+        try:
+            with open(descriptor, "w", encoding="utf-8", closefd=True) as output:
+                json.dump(
+                    manifest,
+                    output,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                output.flush()
+            temporary_path.replace(self.manifest_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     def _load_docstore(self) -> Any:
         if self.docstore_path.exists():

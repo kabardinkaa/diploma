@@ -144,9 +144,13 @@ Telegram-бот не содержит RAG-логики. Он редактиру�
 | `POST /chats/{id}/messages/{message_id}/feedback` | Existing feedback |
 | `POST /chats/{id}/handoff` | Existing operator handoff |
 
-Upload принимает `.pdf`, `.docx`, `.html`, `.htm`, `.md`, отбрасывает path
-traversal и валидирует category по `[A-Za-z0-9_-]+`. Full reindex очищает только
-`corporate_rag` и её docstore, не затрагивая коллекции прошлых работ.
+Upload принимает `.pdf`, `.docx`, `.html`, `.htm`, `.md`, потоково применяет
+`DOCUMENT_UPLOAD_MAX_BYTES`, проверяет filename, MIME/signature и безопасную
+структуру DOCX. Существующий corpus-файл не перезаписывается: API возвращает
+`409 file_conflict`. Reindex ограничен по числу и суммарному размеру файлов;
+upload/full/incremental операции сериализуются process-local lock и при конфликте
+возвращают `409 ingestion_busy`. Full reindex очищает только `corporate_rag` и её
+docstore, не затрагивая коллекции прошлых работ.
 
 ## Commands
 

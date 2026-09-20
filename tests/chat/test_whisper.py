@@ -11,7 +11,7 @@ from app.chat.media import media_to_part
 async def test_media_to_part_transcribes_audio_locally() -> None:
     media = UploadFile(
         filename="voice.ogg",
-        file=BytesIO(b"fake-ogg-data"),
+        file=BytesIO(b"OggSfake-ogg-data"),
         headers={"content-type": "audio/ogg"},
     )
 
@@ -32,6 +32,6 @@ async def test_media_to_part_transcribes_audio_locally() -> None:
     }
 
     transcribe_mock.assert_awaited_once_with(
-        b"fake-ogg-data",
+        b"OggSfake-ogg-data",
         "voice.ogg",
     )

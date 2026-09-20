@@ -107,6 +107,41 @@ class Settings(BaseSettings):
         ge=1,
         alias="PUBLIC_MAX_CONCURRENT_REQUESTS",
     )
+    document_upload_max_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1,
+        alias="DOCUMENT_UPLOAD_MAX_BYTES",
+    )
+    chat_media_max_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1,
+        alias="CHAT_MEDIA_MAX_BYTES",
+    )
+    document_archive_max_entries: int = Field(
+        default=1000,
+        ge=1,
+        alias="DOCUMENT_ARCHIVE_MAX_ENTRIES",
+    )
+    document_archive_max_uncompressed_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        ge=1,
+        alias="DOCUMENT_ARCHIVE_MAX_UNCOMPRESSED_BYTES",
+    )
+    document_archive_max_compression_ratio: float = Field(
+        default=100.0,
+        ge=1.0,
+        alias="DOCUMENT_ARCHIVE_MAX_COMPRESSION_RATIO",
+    )
+    reindex_max_files: int = Field(
+        default=500,
+        ge=1,
+        alias="REINDEX_MAX_FILES",
+    )
+    reindex_max_total_bytes: int = Field(
+        default=256 * 1024 * 1024,
+        ge=1,
+        alias="REINDEX_MAX_TOTAL_BYTES",
+    )
     embedding_model: str = Field(
         default="intfloat/multilingual-e5-base",
         alias="EMBEDDING_MODEL",

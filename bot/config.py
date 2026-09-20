@@ -31,6 +31,16 @@ class BotSettings(BaseSettings):
         alias="BOT_RATE_LIMIT_WINDOW_SECONDS",
     )
     daily_quota: int = Field(default=100, ge=1, alias="BOT_DAILY_QUOTA")
+    photo_max_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        ge=1,
+        alias="BOT_PHOTO_MAX_BYTES",
+    )
+    media_max_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1,
+        alias="BOT_MEDIA_MAX_BYTES",
+    )
 
     @field_validator("bot_admin_ids", mode="before")
     @classmethod

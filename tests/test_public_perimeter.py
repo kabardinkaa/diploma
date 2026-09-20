@@ -6,10 +6,11 @@ from uuid import uuid4
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import SecretStr
 
 from app.core.config import Settings, get_settings
+from app.core.exceptions import SafeInputError
 from app.admin.deps import require_internal_in_public
 from app.deps.providers import get_llm_service
 from app.routers import agent, chat, documents, health
@@ -94,6 +95,14 @@ def test_batch_requires_real_admin_token_and_rejects_placeholder() -> None:
 def test_document_upload_requires_admin_token() -> None:
     api = FastAPI()
     api.include_router(documents.router)
+
+    @api.exception_handler(SafeInputError)
+    async def safe_input_handler(_, exc: SafeInputError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": {"code": exc.code, "message": exc.message}},
+        )
+
     api.dependency_overrides[get_settings] = lambda: SimpleNamespace(
         admin_token=SecretStr("test-admin-token")
     )

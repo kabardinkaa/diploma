@@ -11,6 +11,14 @@ from fastapi import UploadFile
 from faster_whisper import WhisperModel
 from pypdf import PdfReader
 
+from app.core.config import get_settings
+from app.core.exceptions import InvalidDocumentError, SafeInputError
+from app.core.uploads import (
+    normalize_safe_filename,
+    read_upload_limited,
+    validate_media_bytes,
+)
+
 
 ContentPart = dict[str, Any]
 
@@ -142,50 +150,69 @@ async def whisper_transcribe(
 async def media_to_part(
     media: UploadFile,
     llm_client: Any | None = None,
+    *,
+    max_bytes: int | None = None,
 ) -> ContentPart:
     del llm_client
 
-    mime = media.content_type or ""
-    data = await media.read()
+    settings = get_settings()
+    mime = (media.content_type or "").split(";", 1)[0].strip().lower()
+    filename = normalize_safe_filename(media.filename or "upload.bin")
+    data = await read_upload_limited(
+        media,
+        max_bytes=(
+            max_bytes if max_bytes is not None else settings.chat_media_max_bytes
+        ),
+    )
+    validate_media_bytes(
+        data,
+        filename=filename,
+        content_type=mime,
+        archive_max_entries=settings.document_archive_max_entries,
+        archive_max_uncompressed_bytes=(
+            settings.document_archive_max_uncompressed_bytes
+        ),
+        archive_max_compression_ratio=(
+            settings.document_archive_max_compression_ratio
+        ),
+    )
 
-    if mime.startswith("image/"):
-        encoded = base64.b64encode(data).decode("ascii")
+    try:
+        if mime.startswith("image/"):
+            encoded = base64.b64encode(data).decode("ascii")
+            return {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mime};base64,{encoded}",
+                },
+            }
 
-        return {
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:{mime};base64,{encoded}",
-            },
-        }
+        if mime.startswith("audio/") or mime == "application/ogg":
+            transcript = await whisper_transcribe(data, filename)
+            return {
+                "type": "text",
+                "text": (
+                    "[Распознанный текст голосового сообщения]\n"
+                    f"{transcript}"
+                ),
+            }
 
-    if mime.startswith("audio/") or mime == "application/ogg":
-        transcript = await whisper_transcribe(
-            data,
-            media.filename or "audio.ogg",
-        )
+        if mime == "application/pdf":
+            text = extract_pdf_text(data)[:3_000]
+            return {
+                "type": "text",
+                "text": f"[Содержимое PDF-документа]\n{text}",
+            }
 
-        return {
-            "type": "text",
-            "text": (
-                "[Распознанный текст голосового сообщения]\n"
-                f"{transcript}"
-            ),
-        }
+        if mime.endswith("wordprocessingml.document"):
+            text = extract_docx_text(data)[:3_000]
+            return {
+                "type": "text",
+                "text": f"[Содержимое DOCX-документа]\n{text}",
+            }
+    except SafeInputError:
+        raise
+    except Exception:
+        raise InvalidDocumentError() from None
 
-    if mime == "application/pdf":
-        text = extract_pdf_text(data)[:3_000]
-
-        return {
-            "type": "text",
-            "text": f"[Содержимое PDF-документа]\n{text}",
-        }
-
-    if mime.endswith("wordprocessingml.document"):
-        text = extract_docx_text(data)[:3_000]
-
-        return {
-            "type": "text",
-            "text": f"[Содержимое DOCX-документа]\n{text}",
-        }
-
-    raise ValueError(f"Unsupported media type: {mime}")
+    raise InvalidDocumentError()

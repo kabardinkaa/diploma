@@ -68,6 +68,7 @@ class BackendClient:
         content: str,
         media: bytes | None = None,
         mime: str | None = None,
+        filename: str | None = None,
     ) -> AsyncIterator[str]:
         owner_external_id = self._chat_owners.get(chat_id)
         if self.user_quota is not None and owner_external_id is not None:
@@ -81,7 +82,7 @@ class BackendClient:
 
         if media is not None:
             multipart_parts["media"] = (
-                "file.bin",
+                filename or "file.bin",
                 media,
                 mime or "application/octet-stream",
             )
