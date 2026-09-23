@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import get_type_hints
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -142,6 +142,24 @@ def test_graph_tool_reuses_existing_implementation(monkeypatch) -> None:
 
     assert result == "fragment"
     implementation.assert_called_once_with("VPN")
+
+
+@pytest.mark.asyncio
+async def test_lifespan_search_tool_reuses_existing_rag_service() -> None:
+    rag_service = SimpleNamespace(
+        retrieve_contexts=AsyncMock(
+            return_value=[{"text": "Используйте корпоративный VPN."}]
+        )
+    )
+    tools = graph_agent_tools.build_tools(rag_service)
+    search = next(item for item in tools if item.name == "search_knowledge_base")
+
+    first = await search.ainvoke({"query": "VPN"})
+    second = await search.ainvoke({"query": "VPN повторно"})
+
+    assert first == "Используйте корпоративный VPN."
+    assert second == first
+    assert rag_service.retrieve_contexts.await_count == 2
 
 
 @pytest.mark.asyncio

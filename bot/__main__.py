@@ -15,6 +15,21 @@ PLACEHOLDER_BOT_TOKEN = "change-me-telegram-bot-token"
 PLACEHOLDER_INTERNAL_TOKEN = "change-me-internal-token"
 
 
+async def cancel_and_wait(task: asyncio.Task | None) -> None:
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        logging.warning(
+            "Background task stopped before shutdown: %s",
+            type(exc).__name__,
+        )
+
+
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
@@ -67,10 +82,19 @@ async def main() -> None:
             )
         await dispatcher.start_polling(bot)
     finally:
-        if worker_task is not None:
-            worker_task.cancel()
-        await http_client.aclose()
-        await bot.session.close()
+        await cancel_and_wait(worker_task)
+        close_results = await asyncio.gather(
+            dispatcher.storage.close(),
+            http_client.aclose(),
+            bot.session.close(),
+            return_exceptions=True,
+        )
+        for result in close_results:
+            if isinstance(result, Exception):
+                logging.warning(
+                    "Bot resource shutdown failed: %s",
+                    type(result).__name__,
+                )
 
 
 if __name__ == "__main__":

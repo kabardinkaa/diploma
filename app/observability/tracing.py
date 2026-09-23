@@ -76,7 +76,28 @@ def set_span_attributes(span: Any | None, **attributes: Any) -> None:
 def force_flush_tracing(timeout_millis: int = 10_000) -> bool:
     if _tracer_provider is None:
         return False
-    return bool(_tracer_provider.force_flush(timeout_millis=timeout_millis))
+    try:
+        return bool(_tracer_provider.force_flush(timeout_millis=timeout_millis))
+    except Exception as exc:
+        logger.warning(
+            "tracing.flush_failed",
+            error_type=type(exc).__name__,
+        )
+        return False
+
+
+def shutdown_tracing() -> bool:
+    if _tracer_provider is None:
+        return False
+    try:
+        _tracer_provider.shutdown()
+        return True
+    except Exception as exc:
+        logger.warning(
+            "tracing.shutdown_failed",
+            error_type=type(exc).__name__,
+        )
+        return False
 
 
 def reset_tracing_for_tests() -> None:

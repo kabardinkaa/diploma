@@ -20,10 +20,12 @@ class ReadinessService:
         settings: Settings,
         qdrant_client: Any,
         *,
+        postgres_pool: Any | None = None,
         postgres_connect: Callable[..., Awaitable[Any]] = asyncpg.connect,
     ) -> None:
         self.settings = settings
         self.qdrant_client = qdrant_client
+        self._postgres_pool = postgres_pool
         self._postgres_connect = postgres_connect
 
     async def _postgres_status(self) -> dict[str, str]:
@@ -33,6 +35,13 @@ class ReadinessService:
         connection = None
         try:
             async with asyncio.timeout(_CHECK_TIMEOUT_SECONDS):
+                if self._postgres_pool is not None:
+                    async with self._postgres_pool.acquire(
+                        timeout=_CHECK_TIMEOUT_SECONDS
+                    ) as pooled_connection:
+                        await pooled_connection.fetchval("SELECT 1")
+                    return {"status": "ok"}
+
                 connection = await self._postgres_connect(
                     dsn=self.settings.database_url,
                     timeout=_CHECK_TIMEOUT_SECONDS,

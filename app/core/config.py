@@ -72,6 +72,19 @@ class Settings(BaseSettings):
     environment: str = Field(default="dev", alias="APP_ENV")
 
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    db_pool_min_size: int = Field(default=1, ge=0, alias="DB_POOL_MIN_SIZE")
+    db_pool_max_size: int = Field(default=5, ge=1, alias="DB_POOL_MAX_SIZE")
+    llm_cache_enabled: bool = Field(default=True, alias="LLM_CACHE_ENABLED")
+    llm_cache_max_entries: int = Field(
+        default=256,
+        ge=1,
+        alias="LLM_CACHE_MAX_ENTRIES",
+    )
+    llm_cache_ttl_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        alias="LLM_CACHE_TTL_SECONDS",
+    )
     agent_checkpointer: Literal["memory", "sqlite", "postgres"] = Field(
         default="sqlite",
         alias="AGENT_CHECKPOINTER",
@@ -285,6 +298,8 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
     def model_post_init(self, __context: object) -> None:
+        if self.db_pool_min_size > self.db_pool_max_size:
+            raise ValueError("DB_POOL_MIN_SIZE must not exceed DB_POOL_MAX_SIZE")
         if self.rag_chunk_overlap >= self.rag_chunk_size:
             raise ValueError("RAG_CHUNK_OVERLAP must be smaller than RAG_CHUNK_SIZE")
         if self.environment.lower() in {"prod", "production", "public"}:

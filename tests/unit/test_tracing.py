@@ -35,3 +35,21 @@ def test_tracing_setup_is_idempotent_and_reuses_provider(mocker) -> None:
     register.assert_called_once()
     openai_instrument.assert_called_once_with(tracer_provider=provider)
     llama_instrument.assert_called_once_with(tracer_provider=provider)
+
+
+def test_tracing_flush_failure_is_non_fatal() -> None:
+    provider = Mock()
+    provider.force_flush.side_effect = RuntimeError("collector unavailable")
+    tracing._tracer_provider = provider
+
+    assert tracing.force_flush_tracing(timeout_millis=123) is False
+    provider.force_flush.assert_called_once_with(timeout_millis=123)
+
+
+def test_tracing_shutdown_failure_is_non_fatal() -> None:
+    provider = Mock()
+    provider.shutdown.side_effect = RuntimeError("collector unavailable")
+    tracing._tracer_provider = provider
+
+    assert tracing.shutdown_tracing() is False
+    provider.shutdown.assert_called_once_with()

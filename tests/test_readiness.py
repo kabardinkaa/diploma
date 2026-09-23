@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -118,3 +119,43 @@ def test_ready_returns_503_when_corporate_collection_is_missing() -> None:
     assert response.json()["dependencies"]["corporate_rag"] == {
         "status": "missing"
     }
+
+
+def test_ready_reuses_lifespan_postgres_pool() -> None:
+    connection = SimpleNamespace(fetchval=AsyncMock(return_value=1))
+
+    class Pool:
+        acquire_count = 0
+
+        @asynccontextmanager
+        async def acquire(self, *, timeout: float):
+            self.acquire_count += 1
+            yield connection
+
+    pool = Pool()
+    connect = AsyncMock()
+    qdrant = SimpleNamespace(
+        get_collections=AsyncMock(
+            return_value=SimpleNamespace(
+                collections=[SimpleNamespace(name="corporate_rag")]
+            )
+        )
+    )
+    settings = SimpleNamespace(
+        database_url="postgresql://redacted",
+        rag_production_collection="corporate_rag",
+    )
+    api = FastAPI()
+    api.state.readiness_probe = ReadinessService(
+        settings,
+        qdrant,
+        postgres_pool=pool,
+        postgres_connect=connect,
+    )
+    api.include_router(health.router)
+
+    response = TestClient(api).get("/health/ready")
+
+    assert response.status_code == 200
+    assert pool.acquire_count == 1
+    connect.assert_not_awaited()

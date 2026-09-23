@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -20,6 +21,8 @@ from app.chat.domain import (
     SystemPrompt,
 )
 from app.chat.repositories.json_repo import DEFAULT_PROMPTS
+from app.core.config import Settings
+from app.core.exceptions import DatabaseInfrastructureError
 
 
 SCHEMA_SQL = """
@@ -82,50 +85,84 @@ ADD COLUMN IF NOT EXISTS sources jsonb NOT NULL DEFAULT '[]'::jsonb;
 """
 
 
+async def create_postgres_pool(settings: Settings) -> Any:
+    if asyncpg is None:
+        raise RuntimeError("asyncpg is required for the Postgres chat repository")
+    if not settings.database_url:
+        raise ValueError("DATABASE_URL is required when CHAT_REPOSITORY=postgres")
+
+    try:
+        return await asyncpg.create_pool(
+            dsn=settings.database_url,
+            min_size=settings.db_pool_min_size,
+            max_size=settings.db_pool_max_size,
+            timeout=5.0,
+            command_timeout=30.0,
+        )
+    except asyncio.CancelledError:
+        raise
+    except (TimeoutError, OSError, asyncpg.PostgresError) as exc:
+        raise DatabaseInfrastructureError() from exc
+
+
 class PostgresChatRepository:
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, pool: Any, *, acquire_timeout: float = 5.0) -> None:
         if asyncpg is None:
             raise RuntimeError("asyncpg is required for PostgresChatRepository")
 
-        self.database_url = database_url
+        self.pool = pool
+        self.acquire_timeout = acquire_timeout
         self._schema_ready = False
+        self._schema_lock = asyncio.Lock()
 
-    async def _connect(self):
-        return await asyncpg.connect(self.database_url)
-
-    async def _ensure_schema(self, conn) -> None:
+    async def initialize(self) -> None:
+        """Bootstrap the current lightweight schema once per app lifespan."""
         if self._schema_ready:
             return
 
-        await conn.execute(SCHEMA_SQL)
-        count = await conn.fetchval("SELECT COUNT(*) FROM system_prompts")
+        async with self._schema_lock:
+            if self._schema_ready:
+                return
+            try:
+                async with self.pool.acquire(timeout=self.acquire_timeout) as conn:
+                    await conn.execute(SCHEMA_SQL)
+                    count = await conn.fetchval("SELECT COUNT(*) FROM system_prompts")
 
-        if count == 0:
-            for prompt in DEFAULT_PROMPTS:
-                await conn.execute(
-                    """
-                    INSERT INTO system_prompts
-                    (id, version, body, created_at, active, traffic_pct, notes)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7)
-                    """,
-                    prompt.id,
-                    prompt.version,
-                    prompt.body,
-                    prompt.created_at,
-                    prompt.active,
-                    prompt.traffic_pct,
-                    prompt.notes,
-                )
+                    if count == 0:
+                        for prompt in DEFAULT_PROMPTS:
+                            await conn.execute(
+                                """
+                                INSERT INTO system_prompts
+                                (id, version, body, created_at, active, traffic_pct, notes)
+                                VALUES ($1,$2,$3,$4,$5,$6,$7)
+                                """,
+                                prompt.id,
+                                prompt.version,
+                                prompt.body,
+                                prompt.created_at,
+                                prompt.active,
+                                prompt.traffic_pct,
+                                prompt.notes,
+                            )
+            except asyncio.CancelledError:
+                raise
+            except (TimeoutError, OSError, asyncpg.PostgresError) as exc:
+                raise DatabaseInfrastructureError() from exc
 
-        self._schema_ready = True
+            self._schema_ready = True
 
     async def _run(self, callback):
-        conn = await self._connect()
         try:
-            await self._ensure_schema(conn)
-            return await callback(conn)
-        finally:
-            await conn.close()
+            if not self._schema_ready:
+                await self.initialize()
+            async with self.pool.acquire(timeout=self.acquire_timeout) as conn:
+                return await callback(conn)
+        except asyncio.CancelledError:
+            raise
+        except DatabaseInfrastructureError:
+            raise
+        except (TimeoutError, OSError, asyncpg.PostgresError) as exc:
+            raise DatabaseInfrastructureError() from exc
 
     def _chat_from_row(self, row) -> Chat:
         return Chat(

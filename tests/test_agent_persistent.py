@@ -68,7 +68,15 @@ async def test_agent_lifespan_calls_setup_once(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         agent_persistent,
         "build_agent",
-        lambda checkpointer: ("compiled", checkpointer),
+        lambda checkpointer, **_kwargs: ("compiled", checkpointer),
+    )
+    close = AsyncMock()
+    monkeypatch.setattr(
+        agent_persistent,
+        "_build_model",
+        lambda _settings: SimpleNamespace(
+            root_async_client=SimpleNamespace(close=close)
+        ),
     )
     settings = SimpleNamespace(
         agent_checkpointer="sqlite",
@@ -79,6 +87,7 @@ async def test_agent_lifespan_calls_setup_once(monkeypatch, tmp_path) -> None:
         assert graph == ("compiled", saver)
 
     saver.setup.assert_awaited_once_with()
+    close.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

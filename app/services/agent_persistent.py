@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
 import operator
@@ -26,7 +27,7 @@ from langgraph.graph.message import add_messages
 from langgraph.types import Command, interrupt
 
 from app.core.config import Settings, get_settings
-from app.tools.graph_agent_tools import TOOLS, TOOLS_BY_NAME, send_telegram_message
+from app.tools.graph_agent_tools import TOOLS, build_tools, send_telegram_message
 
 
 WRITE_TOOL = "send_telegram_message"
@@ -49,8 +50,8 @@ class PersistentAgentState(TypedDict):
     tool_results: Annotated[list[dict[str, Any]], operator.add]
 
 
-def _build_model() -> ChatOpenAI:
-    settings = get_settings()
+def _build_model(settings: Settings | None = None) -> ChatOpenAI:
+    settings = settings or get_settings()
     return ChatOpenAI(
         model=settings.agent_model,
         temperature=0,
@@ -93,11 +94,17 @@ def build_agent(
     *,
     model: Any | None = None,
     send_handler: SendHandler | None = None,
+    tools: list[Any] | None = None,
 ) -> Any:
     """Compile the persistent graph without owning the checkpointer lifecycle."""
 
     configured_model = model or _build_model()
-    model_with_tools = configured_model.bind_tools(TOOLS)
+    configured_tools = tools or TOOLS
+    tools_by_name = {
+        configured_tool.name: configured_tool
+        for configured_tool in configured_tools
+    }
+    model_with_tools = configured_model.bind_tools(configured_tools)
     execute_send = send_handler or _default_send
 
     async def call_model(
@@ -124,7 +131,7 @@ def build_agent(
             name = str(call.get("name") or "")
             call_id = str(call.get("id") or "missing-tool-call-id")
             args = call.get("args") if isinstance(call.get("args"), dict) else {}
-            selected = TOOLS_BY_NAME.get(name)
+            selected = tools_by_name.get(name)
             if selected is None or name == WRITE_TOOL:
                 result = f"Инструмент '{name}' недоступен в этом узле"
                 status = "error"
@@ -291,26 +298,48 @@ def _postgres_uri(settings: Settings) -> str:
 @asynccontextmanager
 async def agent_lifespan(
     settings: Settings | None = None,
+    *,
+    rag_service: Any | None = None,
 ) -> AsyncIterator[Any]:
     """Own one checkpointer and one compiled graph for the application lifespan."""
 
     configured = settings or get_settings()
-    async with AsyncExitStack() as stack:
-        if configured.agent_checkpointer == "memory":
-            checkpointer: Any = InMemorySaver()
-        elif configured.agent_checkpointer == "sqlite":
-            sqlite_path = Path(configured.agent_sqlite_path)
-            sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-            checkpointer = await stack.enter_async_context(
-                AsyncSqliteSaver.from_conn_string(str(sqlite_path))
+    model = _build_model(configured)
+    try:
+        async with AsyncExitStack() as stack:
+            if configured.agent_checkpointer == "memory":
+                checkpointer: Any = InMemorySaver()
+            elif configured.agent_checkpointer == "sqlite":
+                sqlite_path = Path(configured.agent_sqlite_path)
+                sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+                checkpointer = await stack.enter_async_context(
+                    AsyncSqliteSaver.from_conn_string(str(sqlite_path))
+                )
+                await checkpointer.setup()
+            else:
+                checkpointer = await stack.enter_async_context(
+                    AsyncPostgresSaver.from_conn_string(_postgres_uri(configured))
+                )
+                await checkpointer.setup()
+            yield build_agent(
+                checkpointer,
+                model=model,
+                tools=build_tools(rag_service),
             )
-            await checkpointer.setup()
-        else:
-            checkpointer = await stack.enter_async_context(
-                AsyncPostgresSaver.from_conn_string(_postgres_uri(configured))
-            )
-            await checkpointer.setup()
-        yield build_agent(checkpointer)
+    finally:
+        root_client = getattr(model, "root_async_client", None)
+        close = getattr(root_client, "close", None)
+        if close is not None:
+            try:
+                result = close()
+                if inspect.isawaitable(result):
+                    async with asyncio.timeout(5):
+                        await result
+            except Exception as exc:
+                logger.warning(
+                    "agent.model_shutdown_failed",
+                    error_type=type(exc).__name__,
+                )
 
 
 __all__ = [

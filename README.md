@@ -631,7 +631,12 @@ Required production-operation settings:
 ADMIN_TOKEN=change-me-admin-token
 INTERNAL_TOKEN=change-me-internal-token
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/diploma
+DB_POOL_MIN_SIZE=1
+DB_POOL_MAX_SIZE=5
 CHAT_REPOSITORY=json
+LLM_CACHE_ENABLED=true
+LLM_CACHE_MAX_ENTRIES=256
+LLM_CACHE_TTL_SECONDS=300
 BOT_ADMIN_IDS=123456789
 MODERATION_OPENAI_ENABLED=false
 ```
@@ -654,7 +659,7 @@ python -m bot
 docker compose up --build
 ```
 
-Compose starts `app`, `bot`, `postgres`, `redis`, and `phoenix`. Postgres data is persisted in the `pg-data` volume.
+Compose starts `app`, `bot`, one-shot `ingest`, `postgres`, `qdrant`, and `phoenix`. Postgres data is persisted in the `pg-data` volume. The app owns one bounded Postgres connection pool for chat storage and one bounded process-local LLM cache; their limits are configured by the variables above.
 
 ### Implemented B4.4 Features
 

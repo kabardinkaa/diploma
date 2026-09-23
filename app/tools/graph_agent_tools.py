@@ -1,6 +1,7 @@
 from langchain_core.tools import tool
 
 from app.tools.naive_agent_tools import (
+    NOT_FOUND,
     get_current_time as get_current_time_impl,
     search_knowledge_base as search_knowledge_base_impl,
     send_telegram_message as send_telegram_message_impl,
@@ -41,3 +42,22 @@ def send_telegram_message(chat_id: str, text: str) -> str:
 
 TOOLS = [search_knowledge_base, get_current_time, send_telegram_message]
 TOOLS_BY_NAME = {graph_tool.name: graph_tool for graph_tool in TOOLS}
+
+
+def build_tools(rag_service=None):
+    """Build lifespan-bound tools while preserving legacy standalone exports."""
+
+    if rag_service is None:
+        return list(TOOLS)
+
+    @tool
+    async def search_knowledge_base(query: str) -> str:
+        """Ищет top-1 фрагмент во внутренней базе знаний техподдержки."""
+
+        normalized_query = query.strip()
+        if not normalized_query:
+            return NOT_FOUND
+        contexts = await rag_service.retrieve_contexts(normalized_query, top_k=1)
+        return str(contexts[0]["text"]) if contexts else NOT_FOUND
+
+    return [search_knowledge_base, get_current_time, send_telegram_message]

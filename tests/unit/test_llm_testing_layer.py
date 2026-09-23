@@ -149,3 +149,31 @@ async def test_llm_service_cache_hit_uses_cache_without_openai_call(mocker) -> N
     assert response.cached is True
     assert response.content == "Ответ из кеша"
     openai_client.chat.completions.create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_repeated_llm_calls_reuse_injected_client(mocker) -> None:
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content="Ответ"),
+                finish_reason="stop",
+            )
+        ],
+        usage=None,
+        model="mock-model",
+    )
+    openai_client = mocker.Mock()
+    openai_client.chat.completions.create = mocker.AsyncMock(return_value=response)
+    settings = SimpleNamespace(llm=SimpleNamespace(default_model="mock-model"))
+    service = LLMService(openai_client, {}, settings)
+
+    await service.complete(
+        ChatRequest(messages=[Message(role="user", content="Первый вопрос")])
+    )
+    await service.complete(
+        ChatRequest(messages=[Message(role="user", content="Второй вопрос")])
+    )
+
+    assert service.openai is openai_client
+    assert openai_client.chat.completions.create.await_count == 2

@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any
 import time
@@ -8,7 +9,11 @@ import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from app.observability.logging import setup_logging
-from app.observability.tracing import setup_tracing
+from app.observability.tracing import (
+    force_flush_tracing,
+    setup_tracing,
+    shutdown_tracing,
+)
 
 from contextlib import asynccontextmanager
 
@@ -19,6 +24,7 @@ from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 
 from app.core.config import get_settings
+from app.core.cache import BoundedTTLCache
 from app.core.exceptions import (
     InfrastructureError,
     LLMAuthError,
@@ -30,6 +36,11 @@ from app.core.exceptions import (
 from app.admin.routes import router as admin_router
 from app.routers import agent, chat, documents, health, models, rag
 from app.chat.routes import router as chat_history_router
+from app.chat.repositories.json_repo import JsonChatRepository
+from app.chat.repositories.postgres_repo import (
+    PostgresChatRepository,
+    create_postgres_pool,
+)
 from app.services.rag import RAGService
 from app.services.agent_persistent import agent_lifespan
 from app.services.readiness import ReadinessService
@@ -69,29 +80,83 @@ async def lifespan(app: FastAPI):
     if settings.llm.base_url:
         client_kwargs["base_url"] = settings.llm.base_url
 
-    app.state.openai = AsyncOpenAI(**client_kwargs)
-    # Process-local cache keeps the final runtime independent from Redis.
-    app.state.cache = {}
-    app.state.rag_service = RAGService(
-        settings,
-        openai_client=app.state.openai,
-    )
-    app.state.readiness_probe = ReadinessService(
-        settings,
-        app.state.rag_service.async_client,
-    )
+    openai_client = AsyncOpenAI(**client_kwargs)
+    postgres_pool = None
+    rag_service = None
+    try:
+        app.state.openai = openai_client
+        app.state.cache = BoundedTTLCache(
+            max_entries=settings.llm_cache_max_entries,
+            ttl_seconds=settings.llm_cache_ttl_seconds,
+            enabled=settings.llm_cache_enabled,
+        )
 
-    async with agent_lifespan(settings) as persistent_agent:
-        app.state.persistent_agent = persistent_agent
-        try:
+        if settings.chat_repository == "postgres":
+            postgres_pool = await create_postgres_pool(settings)
+            chat_repository = PostgresChatRepository(postgres_pool)
+            await chat_repository.initialize()
+        else:
+            chat_repository = JsonChatRepository(
+                base_dir=settings.chat_storage_dir
+            )
+        app.state.db_pool = postgres_pool
+        app.state.chat_repository = chat_repository
+
+        rag_service = RAGService(settings, openai_client=openai_client)
+        app.state.rag_service = rag_service
+        app.state.readiness_probe = ReadinessService(
+            settings,
+            rag_service.async_client,
+            postgres_pool=postgres_pool,
+        )
+
+        async with agent_lifespan(
+            settings,
+            rag_service=rag_service,
+        ) as persistent_agent:
+            app.state.persistent_agent = persistent_agent
             await app.state.rag_service.build()
             logger.info("Application startup complete")
             yield
-        finally:
-            await app.state.rag_service.close()
-            await app.state.openai.close()
+    finally:
+        if rag_service is not None:
+            try:
+                async with asyncio.timeout(10):
+                    await rag_service.close()
+            except Exception as exc:
+                logger.warning("rag.shutdown_failed", error_type=type(exc).__name__)
 
-            logger.info("Application shutdown complete")
+        try:
+            async with asyncio.timeout(10):
+                await openai_client.close()
+        except Exception as exc:
+            logger.warning("openai.shutdown_failed", error_type=type(exc).__name__)
+
+        if postgres_pool is not None:
+            try:
+                async with asyncio.timeout(10):
+                    await postgres_pool.close()
+            except Exception as exc:
+                logger.warning("postgres.shutdown_failed", error_type=type(exc).__name__)
+                postgres_pool.terminate()
+
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(force_flush_tracing, 5_000),
+                timeout=6.0,
+            )
+        except Exception as exc:
+            logger.warning("tracing.flush_failed", error_type=type(exc).__name__)
+
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(shutdown_tracing),
+                timeout=6.0,
+            )
+        except Exception as exc:
+            logger.warning("tracing.shutdown_failed", error_type=type(exc).__name__)
+
+        logger.info("Application shutdown complete")
 
 
 settings = get_settings()

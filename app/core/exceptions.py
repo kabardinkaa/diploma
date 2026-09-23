@@ -35,6 +35,11 @@ class RAGInfrastructureError(InfrastructureError):
     message = "Сервис поиска по базе знаний временно недоступен"
 
 
+class DatabaseInfrastructureError(InfrastructureError):
+    code = "database_unavailable"
+    message = "Сервис хранения истории временно недоступен"
+
+
 class SafeInputError(Exception):
     code = "invalid_input"
     message = "Некорректные входные данные"

@@ -3,7 +3,6 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from app.chat.repositories.json_repo import JsonChatRepository
-from app.chat.repositories.postgres_repo import PostgresChatRepository
 from app.chat.repository import ChatRepository
 from app.chat.service import ChatService
 from app.core.config import Settings, get_settings
@@ -14,17 +13,15 @@ from app.moderation import ModerationService
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-def get_repository(settings: SettingsDep) -> ChatRepository:
+def get_repository(request: Request, settings: SettingsDep) -> ChatRepository:
+    repository = getattr(request.app.state, "chat_repository", None)
+    if repository is not None:
+        return repository
+
+    # This fallback keeps isolated route tests usable without running lifespan.
     if settings.chat_repository == "json":
         return JsonChatRepository(base_dir=settings.chat_storage_dir)
-
-    if settings.chat_repository == "postgres":
-        if not settings.database_url:
-            raise ValueError("DATABASE_URL is required when CHAT_REPOSITORY=postgres")
-
-        return PostgresChatRepository(settings.database_url)
-
-    raise ValueError(f"Unknown CHAT_REPOSITORY value: {settings.chat_repository}")
+    raise RuntimeError("Chat repository is not initialized")
 
 
 ChatRepositoryDep = Annotated[ChatRepository, Depends(get_repository)]
