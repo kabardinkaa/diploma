@@ -60,6 +60,7 @@ logs/
 .env.example
 .gitignore
 requirements.txt
+constraints.txt
 README.md
 ```
 
@@ -92,7 +93,7 @@ python -m venv .venv
 Установка зависимостей:
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 ```
 
 ## Настройка переменных окружения
@@ -247,7 +248,7 @@ final_without_tool
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 ```
 
 ### Настройка `.env`
@@ -411,7 +412,7 @@ Semaphore = floor(RPM / 60 * 0.8)
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
@@ -648,7 +649,7 @@ MODERATION_OPENAI_ENABLED=false
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 python -m uvicorn app.main:app --reload --port 8000
 python -m bot
 ```
@@ -660,6 +661,13 @@ docker compose up --build
 ```
 
 Compose starts `app`, `bot`, one-shot `ingest`, `postgres`, `qdrant`, and `phoenix`. Postgres data is persisted in the `pg-data` volume. The app owns one bounded Postgres connection pool for chat storage and one bounded process-local LLM cache; their limits are configured by the variables above.
+
+Docker installs the validated Python 3.12 dependency resolution from
+`constraints.txt`. Application services share the same
+`diploma-ai-assistant:3.4.0` image. Infrastructure versions are fixed to
+Postgres 16.14, Qdrant 1.18.0, and Phoenix 17.8.1. Compose also applies
+single-host CPU/memory limits and rotates `json-file` logs at 10 MiB with
+three retained files by default; `.env` may override these deployment limits.
 
 ### Implemented B4.4 Features
 

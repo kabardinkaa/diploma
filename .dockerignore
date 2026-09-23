@@ -1,17 +1,29 @@
 .git
 .gitignore
 .github/
+.agents/
 
-.venv/
-venv/
+.venv*/
+venv*/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
+.cache/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage*
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+var/
+.tmp*/
+/*.db
+/*.sqlite*
 
 .env
 .env.*
@@ -22,6 +34,10 @@ tests/*
 tests/eval/*
 !tests/eval/golden_dataset.json
 notebooks/
+docs/
+eval/
+examples/
+experiments/
 *.md
 !README.md
 !data/**/*.md

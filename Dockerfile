@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS builder
 
 ARG INSTALL_EXTRAS=tracing
 
@@ -10,22 +10,24 @@ ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 ENV UV_PYTHON_DOWNLOADS=0
 
-COPY --from=ghcr.io/astral-sh/uv:0.6.10 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.6.10@sha256:57da96c4557243fc0a732817854084e81af9393f64dc7d172f39c16465b5e2ba /uv /uvx /bin/
 
 WORKDIR /app
 
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-COPY requirements.txt pyproject.toml ./
+COPY requirements.txt constraints.txt pyproject.toml ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
+    --no-deps \
     --index-url https://download.pytorch.org/whl/cpu \
+    --constraint constraints.txt \
     "torch==2.7.1+cpu"
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install -r requirements.txt
+    uv pip install --constraint constraints.txt -r requirements.txt
 
 COPY app ./app
 COPY bot ./bot
@@ -34,10 +36,12 @@ COPY data ./data
 COPY tests/eval/golden_dataset.json ./tests/eval/golden_dataset.json
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ -n "$INSTALL_EXTRAS" ]; then uv pip install ".[${INSTALL_EXTRAS}]"; fi
+    if [ -n "$INSTALL_EXTRAS" ]; then \
+      uv pip install --constraint constraints.txt ".[${INSTALL_EXTRAS}]"; \
+    fi
 
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

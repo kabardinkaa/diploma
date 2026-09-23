@@ -1,9 +1,15 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+    max-file: "${DOCKER_LOG_MAX_FILES:-3}"
+
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    image: llm-service:v1
+    image: diploma-ai-assistant:3.4.0
     ports:
       - "8000:8000"
     env_file:
@@ -84,6 +90,10 @@ services:
       retries: 3
       start_period: 15s
     restart: unless-stopped
+    mem_limit: ${APP_MEMORY_LIMIT:-3g}
+    cpus: ${APP_CPU_LIMIT:-2.0}
+    pids_limit: 512
+    logging: *default-logging
 
   ingest:
     build:
@@ -91,7 +101,7 @@ services:
       dockerfile: Dockerfile
       args:
         INSTALL_EXTRAS: tracing
-    image: llm-service:v1
+    image: diploma-ai-assistant:3.4.0
     command: ["python", "scripts/ingest.py", "/app/data", "--mode", "incremental"]
     env_file:
       - .env
@@ -116,12 +126,16 @@ services:
       qdrant:
         condition: service_healthy
     restart: "no"
+    mem_limit: ${INGEST_MEMORY_LIMIT:-4g}
+    cpus: ${INGEST_CPU_LIMIT:-2.0}
+    pids_limit: 512
+    logging: *default-logging
 
   bot:
     build:
       context: .
       dockerfile: Dockerfile
-    image: llm-service:v1
+    image: diploma-ai-assistant:3.4.0
     command: ["python", "-m", "bot"]
     env_file:
       - .env
@@ -140,9 +154,13 @@ services:
     healthcheck:
       disable: true
     restart: on-failure
+    mem_limit: ${BOT_MEMORY_LIMIT:-512m}
+    cpus: ${BOT_CPU_LIMIT:-0.5}
+    pids_limit: 256
+    logging: *default-logging
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.14-alpine
     environment:
       POSTGRES_DB: diploma
       POSTGRES_USER: postgres
@@ -155,6 +173,10 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-1g}
+    cpus: ${POSTGRES_CPU_LIMIT:-1.0}
+    pids_limit: 256
+    logging: *default-logging
 
   qdrant:
     image: qdrant/qdrant:v1.18.0
@@ -176,9 +198,13 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    mem_limit: ${QDRANT_MEMORY_LIMIT:-2g}
+    cpus: ${QDRANT_CPU_LIMIT:-1.5}
+    pids_limit: 256
+    logging: *default-logging
 
   phoenix:
-    image: arizephoenix/phoenix:latest
+    image: arizephoenix/phoenix:version-17.8.1
     ports:
       - "127.0.0.1:6006:6006"
       - "127.0.0.1:4317:4317"
@@ -187,6 +213,10 @@ services:
     volumes:
       - phoenix-data:/data
     restart: unless-stopped
+    mem_limit: ${PHOENIX_MEMORY_LIMIT:-2g}
+    cpus: ${PHOENIX_CPU_LIMIT:-1.0}
+    pids_limit: 512
+    logging: *default-logging
 
 volumes:
   rag-state: {}
