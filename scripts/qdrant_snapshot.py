@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import re
@@ -17,7 +18,24 @@ def _client() -> tuple[httpx.Client, str]:
     return httpx.Client(headers=headers, timeout=120.0, trust_env=False), base_url
 
 
-def export_snapshot(collection: str, output: Path) -> None:
+def collection_metadata(collection: str) -> dict[str, int | str]:
+    client, base_url = _client()
+    with client:
+        response = client.get(f"{base_url}/collections/{collection}")
+        response.raise_for_status()
+        result = response.json()["result"]
+    return {
+        "collection": collection,
+        "points_count": int(result.get("points_count") or 0),
+    }
+
+
+def export_snapshot(
+    collection: str,
+    output: Path,
+    metadata_path: Path | None = None,
+) -> dict[str, int | str]:
+    metadata = collection_metadata(collection)
     client, base_url = _client()
     with client:
         response = client.post(f"{base_url}/collections/{collection}/snapshots")
@@ -37,6 +55,13 @@ def export_snapshot(collection: str, output: Path) -> None:
             client.delete(
                 f"{base_url}/collections/{collection}/snapshots/{snapshot_name}"
             ).raise_for_status()
+    if metadata_path is not None:
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    return metadata
 
 
 def restore_snapshot(collection: str, snapshot: Path) -> None:
@@ -57,6 +82,10 @@ def build_parser() -> argparse.ArgumentParser:
         operation = subparsers.add_parser(command)
         operation.add_argument("--collection", default="corporate_rag")
         operation.add_argument("--path", type=Path, required=True)
+    export = subparsers.choices["export"]
+    export.add_argument("--metadata", type=Path)
+    inspect = subparsers.add_parser("inspect")
+    inspect.add_argument("--collection", default="corporate_rag")
     return parser
 
 
@@ -65,9 +94,12 @@ def main() -> None:
     if not re.fullmatch(r"[A-Za-z0-9_-]+", args.collection):
         raise SystemExit("Collection name contains unsupported characters")
     if args.command == "export":
-        export_snapshot(args.collection, args.path)
-    else:
+        result = export_snapshot(args.collection, args.path, args.metadata)
+        print(json.dumps(result, sort_keys=True))
+    elif args.command == "restore":
         restore_snapshot(args.collection, args.path)
+    else:
+        print(json.dumps(collection_metadata(args.collection), sort_keys=True))
 
 
 if __name__ == "__main__":

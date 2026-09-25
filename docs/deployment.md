@@ -140,14 +140,18 @@ Production corpus монтируется из `./data`. Embedding weights/cache 
 создаются штатными online-механизмами; текущие volumes не удаляются.
 
 ```powershell
-python scripts/deployment_backup.py backup --env-file .env.production
+python scripts/deployment_backup.py backup `
+  --project-name diploma `
+  --env-file .env.production
 ```
 
 Архив появляется в `backups/<UTC timestamp>/`; `backups/` игнорируется Git.
 Внутри:
 
 - `postgres.dump` — custom-format PostgreSQL dump;
+- `postgres.json` — контрольные row counts основных таблиц;
 - `qdrant.snapshot` — snapshot collection `corporate_rag`;
+- `qdrant.json` — имя collection и ожидаемый point count;
 - `rag-state/` — persistent docstore;
 - `corpus.zip` — production corpus `data/`;
 - `config/` — Compose/Caddy/constraints и env template без секретов;
@@ -160,36 +164,98 @@ Phoenix traces, Docker images и logs. Production secret file храните о�
 План команд без записи backup:
 
 ```powershell
-python scripts/deployment_backup.py backup --env-file .env.production --dry-run
+python scripts/deployment_backup.py backup `
+  --project-name diploma `
+  --env-file .env.production `
+  --dry-run
 ```
 
 ## 7. Restore
 
-Restore перезаписывает состояние Postgres/Qdrant и требует явный флаг. Сначала
-проверьте архив и остановите writers, не удаляя volumes:
+Restore полностью заменяет состояние Postgres, collection `corporate_rag`, RAG
+docstore и corpus. Наложения архива поверх более нового `data/` нет: содержимое
+целевого corpus и RAG state сначала очищается внутри их конкретных mount points,
+затем сверяется с backup. Manifest и все SHA-256 checksums проверяются до первой
+операции с Compose.
+
+CLI требует явный `--project-name` и передаёт его каждой внутренней команде
+Compose. Восстановление в текущий project `diploma` по умолчанию запрещено. Для
+сознательного production restore нужны оба подтверждения:
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production stop app bot ingest
 python scripts/deployment_backup.py restore `
+  --project-name diploma `
+  --allow-current-project `
   --env-file .env.production `
   --from backups/<UTC timestamp> `
   --confirm-restore
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d app bot proxy
 ```
 
-Corpus по умолчанию не перезаписывается. Для сознательного восстановления
-файлов в `data/` добавьте `--restore-corpus` после отдельной копии текущего
-каталога. Перед реальным restore доступна non-destructive проверка плана:
+До запуска сохраните отдельную копию текущих данных и остановите внешние writers.
+Сам runner останавливает `app`, `bot` и `ingest`, запускает/проверяет Postgres и
+Qdrant, выполняет `pg_restore`, а Qdrant и файловое состояние восстанавливает
+через одноразовые `app` containers. Поэтому restore не зависит от остановленного
+контейнера `app`. Затем runner запускает `app` и автоматически проверяет:
+
+- row counts таблиц Postgres против `postgres.json`;
+- наличие `corporate_rag` и point count против `qdrant.json`;
+- точное совпадение corpus и RAG docstore/manifest с backup;
+- `GET /health/ready` без LLM/provider-запроса.
+
+`bot` и `proxy` намеренно не запускаются автоматически: поднимите их после
+успешной проверки результата. Перед реальным restore доступна non-destructive
+проверка плана; backup при этом всё равно должен быть полным и валидным:
 
 ```powershell
 python scripts/deployment_backup.py restore `
+  --project-name diploma-restore-plan `
   --env-file .env.production `
   --from backups/<UTC timestamp> `
   --dry-run
 ```
 
-Restore не тестируется на текущих production volumes. Для полного rehearsal
-используйте отдельный Compose project name и отдельные test volumes.
+### Isolated restore rehearsal
+
+Никогда не репетируйте destructive restore на production project. Overlay
+`docker-compose.restore.yml` отключает host ports, заменяет corpus bind mount на
+named volume и оставляет все state volumes в namespace уникального project name.
+Пример безопасной репетиции для локального backup:
+
+```powershell
+$restoreProject = "diploma-restore-20260925-01"
+$backup = "backups/<UTC timestamp>"
+
+python scripts/deployment_backup.py restore `
+  --project-name $restoreProject `
+  --env-file .env `
+  --compose-file docker-compose.yml `
+  --compose-file docker-compose.restore.yml `
+  --from $backup `
+  --confirm-restore
+
+docker compose `
+  --project-name $restoreProject `
+  --env-file .env `
+  -f docker-compose.yml `
+  -f docker-compose.restore.yml `
+  ps -a
+```
+
+Убедитесь, что `$restoreProject` — новый уникальный идентификатор и не равен
+`diploma`. После проверки удаляйте только этот namespace и его volumes:
+
+```powershell
+docker compose `
+  --project-name $restoreProject `
+  --env-file .env `
+  -f docker-compose.yml `
+  -f docker-compose.restore.yml `
+  down --volumes --remove-orphans
+```
+
+Команда `down --volumes` допустима только после повторной визуальной проверки
+точного временного project name. Volumes текущего project `diploma` в этом
+workflow не используются и не удаляются.
 
 ## 8. Dev workflow
 

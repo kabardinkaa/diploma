@@ -15,6 +15,25 @@ from scripts.validate_production_config import validate_values
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _complete_backup(backup_dir: Path) -> None:
+    (backup_dir / "rag-state").mkdir(parents=True)
+    (backup_dir / "postgres.dump").write_bytes(b"safe-test-dump")
+    (backup_dir / "postgres.json").write_text(
+        json.dumps({table: 0 for table in deployment_backup.POSTGRES_TABLES}),
+        encoding="utf-8",
+    )
+    (backup_dir / "qdrant.snapshot").write_bytes(b"safe-test-snapshot")
+    (backup_dir / "qdrant.json").write_text(
+        json.dumps({"collection": "corporate_rag", "points_count": 73}),
+        encoding="utf-8",
+    )
+    (backup_dir / "corpus.zip").write_bytes(b"safe-test-corpus")
+    (backup_dir / "rag-state" / "docstore.json").write_text("{}", encoding="utf-8")
+    (backup_dir / "rag-state" / "docstore.manifest.json").write_text(
+        "{}", encoding="utf-8"
+    )
+
+
 def _public_settings(**overrides) -> Settings:
     values = {
         "APP_ENV": "public",
@@ -189,7 +208,7 @@ def test_proxy_contract_is_secure_and_sse_compatible() -> None:
 def test_backup_manifest_validation_and_secret_exclusion(tmp_path: Path) -> None:
     backup_dir = tmp_path / "backup"
     backup_dir.mkdir()
-    (backup_dir / "postgres.dump").write_bytes(b"safe-test-dump")
+    _complete_backup(backup_dir)
     deployment_backup._write_manifest(backup_dir)
 
     deployment_backup.validate_backup(backup_dir)
@@ -203,8 +222,16 @@ def test_backup_and_restore_cli_support_non_destructive_dry_run() -> None:
 
     backup = parser.parse_args(["backup", "--dry-run"])
     restore = parser.parse_args(
-        ["restore", "--from", "backups/example", "--dry-run"]
+        [
+            "restore",
+            "--from",
+            "backups/example",
+            "--project-name",
+            "diploma-restore-test",
+            "--dry-run",
+        ]
     )
     assert backup.dry_run is True
     assert restore.dry_run is True
     assert restore.confirm_restore is False
+    assert restore.project_name == "diploma-restore-test"

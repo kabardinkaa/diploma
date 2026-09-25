@@ -7,25 +7,61 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
-import zipfile
+import time
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COMPOSE_FILES = ("docker-compose.yml", "docker-compose.prod.yml")
+CURRENT_PROJECT_NAME = PROJECT_ROOT.name.lower().replace(" ", "-")
 SAFE_CONFIG_FILES = (
     ".env.production.example",
     "constraints.txt",
     "docker-compose.yml",
     "docker-compose.prod.yml",
+    "docker-compose.restore.yml",
     "deploy/Caddyfile",
 )
 
 
-def _compose_prefix(files: list[str], env_file: Path) -> list[str]:
-    command = ["docker", "compose", "--env-file", str(env_file)]
+POSTGRES_TABLES = (
+    "chats",
+    "chat_messages",
+    "feedback",
+    "broadcast_tasks",
+    "system_prompts",
+    "checkpoints",
+    "checkpoint_blobs",
+    "checkpoint_writes",
+    "checkpoint_migrations",
+)
+REQUIRED_BACKUP_FILES = {
+    "postgres.dump",
+    "postgres.json",
+    "qdrant.snapshot",
+    "qdrant.json",
+    "corpus.zip",
+    "rag-state/docstore.json",
+    "rag-state/docstore.manifest.json",
+}
+
+
+def _compose_prefix(
+    files: list[str],
+    env_file: Path,
+    project_name: str,
+) -> list[str]:
+    command = [
+        "docker",
+        "compose",
+        "--project-name",
+        project_name,
+        "--env-file",
+        str(env_file),
+    ]
     for file_name in files or DEFAULT_COMPOSE_FILES:
         command.extend(("-f", file_name))
     return command
@@ -62,6 +98,62 @@ def _run(
             stdout.close()
 
 
+def _capture(command: list[str], *, dry_run: bool) -> str:
+    print(f"+ {_display(command)}")
+    if dry_run:
+        return ""
+    completed = subprocess.run(
+        command,
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _backup_mount(backup_dir: Path, *, read_only: bool = False) -> str:
+    suffix = ":ro" if read_only else ""
+    return f"{backup_dir.resolve().as_posix()}:/backup{suffix}"
+
+
+def _postgres_counts_sql() -> str:
+    pairs = ", ".join(
+        f"'{table}', (SELECT COUNT(*) FROM {table})"
+        for table in POSTGRES_TABLES
+    )
+    return f"SELECT json_build_object({pairs})::text"
+
+
+def _postgres_counts(compose: list[str], args: argparse.Namespace) -> dict[str, int]:
+    output = _capture(
+        compose
+        + [
+            "exec",
+            "-T",
+            "postgres",
+            "psql",
+            "-U",
+            args.postgres_user,
+            "-d",
+            args.postgres_db,
+            "-Atc",
+            _postgres_counts_sql(),
+        ],
+        dry_run=args.dry_run,
+    )
+    if args.dry_run:
+        return {}
+    return {key: int(value) for key, value in json.loads(output).items()}
+
+
+def _load_json(path: Path) -> dict:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"Expected JSON object: {path.name}")
+    return value
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -77,7 +169,7 @@ def _write_manifest(backup_dir: Path) -> None:
         if path.is_file() and path.name != "manifest.json"
     }
     manifest = {
-        "format": 1,
+        "format": 2,
         "created_at": datetime.now(UTC).isoformat(),
         "includes": [
             "postgres custom-format dump",
@@ -105,21 +197,48 @@ def _write_manifest(backup_dir: Path) -> None:
 def validate_backup(backup_dir: Path) -> None:
     manifest_path = backup_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("format") != 1:
+    if manifest.get("format") != 2:
         raise ValueError("Unsupported backup manifest format")
-    for relative, expected in manifest["sha256"].items():
-        path = backup_dir / relative
+    checksums = manifest.get("sha256")
+    if not isinstance(checksums, dict):
+        raise ValueError("Backup manifest does not contain checksums")
+    missing = REQUIRED_BACKUP_FILES.difference(checksums)
+    if missing:
+        raise ValueError(f"Backup is incomplete: {', '.join(sorted(missing))}")
+    root = backup_dir.resolve()
+    actual_files = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and path.name != "manifest.json"
+    }
+    if actual_files != set(checksums):
+        raise ValueError("Backup contents do not match its manifest")
+    for relative, expected in checksums.items():
+        path = (root / relative).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError("Backup manifest contains an unsafe path")
         if not path.is_file() or _sha256(path) != expected:
             raise ValueError(f"Backup checksum mismatch: {relative}")
     forbidden = {".env", ".env.production"}
     if any(path.name in forbidden for path in backup_dir.rglob("*")):
         raise ValueError("Backup must not contain live environment secret files")
+    postgres = _load_json(backup_dir / "postgres.json")
+    if set(postgres) != set(POSTGRES_TABLES):
+        raise ValueError("PostgreSQL backup metadata is incomplete")
+    qdrant = _load_json(backup_dir / "qdrant.json")
+    collection = qdrant.get("collection")
+    if not isinstance(collection, str) or not re.fullmatch(
+        r"[A-Za-z0-9_-]+", collection
+    ):
+        raise ValueError("Qdrant backup metadata has an invalid collection")
+    if not isinstance(qdrant.get("points_count"), int):
+        raise ValueError("Qdrant backup metadata has no point count")
 
 
 def create_backup(args: argparse.Namespace) -> Path:
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_dir = args.output.resolve() / timestamp
-    compose = _compose_prefix(args.compose_file, args.env_file)
+    compose = _compose_prefix(args.compose_file, args.env_file, args.project_name)
     if args.dry_run:
         print(f"Backup target: {backup_dir}")
     else:
@@ -141,39 +260,45 @@ def create_backup(args: argparse.Namespace) -> Path:
         dry_run=args.dry_run,
         stdout_path=backup_dir / "postgres.dump",
     )
+    if not args.dry_run:
+        (backup_dir / "postgres.json").write_text(
+            json.dumps(_postgres_counts(compose, args), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        _postgres_counts(compose, args)
 
-    container_snapshot = f"/tmp/{args.collection}.snapshot"
+    run_prefix = compose + [
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "-v",
+        _backup_mount(backup_dir),
+        "app",
+    ]
     _run(
-        compose
+        run_prefix
         + [
-            "exec",
-            "-T",
-            "app",
             "python",
             "scripts/qdrant_snapshot.py",
             "export",
             "--collection",
             args.collection,
             "--path",
-            container_snapshot,
+            "/backup/qdrant.snapshot",
+            "--metadata",
+            "/backup/qdrant.json",
         ],
         dry_run=args.dry_run,
     )
     _run(
-        compose
+        run_prefix
         + [
-            "cp",
-            f"app:{container_snapshot}",
-            str(backup_dir / "qdrant.snapshot"),
+            "python",
+            "scripts/deployment_state.py",
+            "backup",
         ],
-        dry_run=args.dry_run,
-    )
-    _run(
-        compose + ["exec", "-T", "app", "rm", "-f", container_snapshot],
-        dry_run=args.dry_run,
-    )
-    _run(
-        compose + ["cp", "app:/app/.cache/rag", str(backup_dir / "rag-state")],
         dry_run=args.dry_run,
     )
 
@@ -194,14 +319,112 @@ def create_backup(args: argparse.Namespace) -> Path:
     return backup_dir
 
 
-def restore_backup(args: argparse.Namespace) -> None:
+def _validate_project_name(args: argparse.Namespace) -> None:
+    if not args.project_name:
+        raise ValueError("Restore requires an explicit --project-name")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", args.project_name):
+        raise ValueError("Compose project name contains unsupported characters")
+    if (
+        args.project_name.casefold() == CURRENT_PROJECT_NAME.casefold()
+        and not args.allow_current_project
+    ):
+        raise ValueError(
+            "Refusing restore into the current project without --allow-current-project"
+        )
+
+
+def _validate_postgres(
+    compose: list[str],
+    args: argparse.Namespace,
+    expected: dict,
+) -> dict[str, int]:
+    actual = _postgres_counts(compose, args)
+    if not args.dry_run and actual != expected:
+        raise ValueError("Restored PostgreSQL row counts do not match backup")
+    return actual
+
+
+def _qdrant_metadata(
+    compose: list[str],
+    args: argparse.Namespace,
+    backup_dir: Path,
+) -> dict:
+    output = _capture(
+        compose
+        + [
+            "run",
+            "--rm",
+            "--no-deps",
+            "-T",
+            "-v",
+            _backup_mount(backup_dir, read_only=True),
+            "app",
+            "python",
+            "scripts/qdrant_snapshot.py",
+            "inspect",
+            "--collection",
+            args.collection,
+        ],
+        dry_run=args.dry_run,
+    )
+    return {} if args.dry_run else json.loads(output)
+
+
+def _wait_ready(
+    compose: list[str],
+    *,
+    timeout_seconds: float,
+    dry_run: bool,
+) -> dict:
+    command = compose + [
+        "exec",
+        "-T",
+        "app",
+        "python",
+        "scripts/deployment_state.py",
+        "readiness",
+    ]
+    print(f"+ wait up to {timeout_seconds:g}s: {_display(command)}")
+    if dry_run:
+        return {}
+    deadline = time.monotonic() + timeout_seconds
+    last_error: subprocess.CalledProcessError | None = None
+    while time.monotonic() < deadline:
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=PROJECT_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return json.loads(completed.stdout)
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            time.sleep(2)
+    raise ValueError("Application readiness validation timed out") from last_error
+
+
+def restore_backup(args: argparse.Namespace) -> dict:
     backup_dir = args.from_dir.resolve()
-    if not args.dry_run:
-        validate_backup(backup_dir)
+    validate_backup(backup_dir)
+    _validate_project_name(args)
     if not args.confirm_restore and not args.dry_run:
         raise SystemExit("Restore requires --confirm-restore")
 
-    compose = _compose_prefix(args.compose_file, args.env_file)
+    expected_postgres = _load_json(backup_dir / "postgres.json")
+    expected_qdrant = _load_json(backup_dir / "qdrant.json")
+    if expected_qdrant.get("collection") != args.collection:
+        raise ValueError("Requested collection does not match backup metadata")
+    compose = _compose_prefix(args.compose_file, args.env_file, args.project_name)
+    _run(
+        compose + ["stop", "app", "bot", "ingest"],
+        dry_run=args.dry_run,
+    )
+    _run(
+        compose + ["up", "-d", "--wait", "postgres", "qdrant"],
+        dry_run=args.dry_run,
+    )
     _run(
         compose
         + [
@@ -220,22 +443,17 @@ def restore_backup(args: argparse.Namespace) -> None:
         dry_run=args.dry_run,
         stdin_path=backup_dir / "postgres.dump",
     )
+    postgres_result = _validate_postgres(compose, args, expected_postgres)
 
-    container_snapshot = f"/tmp/{args.collection}.snapshot"
     _run(
         compose
         + [
-            "cp",
-            str(backup_dir / "qdrant.snapshot"),
-            f"app:{container_snapshot}",
-        ],
-        dry_run=args.dry_run,
-    )
-    _run(
-        compose
-        + [
-            "exec",
+            "run",
+            "--rm",
+            "--no-deps",
             "-T",
+            "-v",
+            _backup_mount(backup_dir, read_only=True),
             "app",
             "python",
             "scripts/qdrant_snapshot.py",
@@ -243,28 +461,64 @@ def restore_backup(args: argparse.Namespace) -> None:
             "--collection",
             args.collection,
             "--path",
-            container_snapshot,
+            "/backup/qdrant.snapshot",
         ],
         dry_run=args.dry_run,
     )
+    qdrant_result = _qdrant_metadata(compose, args, backup_dir)
+    if not args.dry_run and qdrant_result != expected_qdrant:
+        raise ValueError("Restored Qdrant metadata does not match backup")
+
     _run(
         compose
-        + ["cp", str(backup_dir / "rag-state" / "."), "app:/app/.cache/rag"],
+        + [
+            "run",
+            "--rm",
+            "--no-deps",
+            "-T",
+            "-v",
+            _backup_mount(backup_dir, read_only=True),
+            "app",
+            "python",
+            "scripts/deployment_state.py",
+            "restore",
+        ],
         dry_run=args.dry_run,
     )
+    state_output = _capture(
+        compose
+        + [
+            "run",
+            "--rm",
+            "--no-deps",
+            "-T",
+            "-v",
+            _backup_mount(backup_dir, read_only=True),
+            "app",
+            "python",
+            "scripts/deployment_state.py",
+            "validate",
+        ],
+        dry_run=args.dry_run,
+    )
+    state_result = {} if args.dry_run else json.loads(state_output)
 
-    if args.restore_corpus:
-        if args.dry_run:
-            print(f"+ extract {backup_dir / 'corpus.zip'} -> {PROJECT_ROOT / 'data'}")
-        else:
-            with zipfile.ZipFile(backup_dir / "corpus.zip") as archive:
-                target = (PROJECT_ROOT / "data").resolve()
-                if any(
-                    not (target / member.filename).resolve().is_relative_to(target)
-                    for member in archive.infolist()
-                ):
-                    raise ValueError("Corpus archive contains an unsafe path")
-                archive.extractall(PROJECT_ROOT / "data")
+    _run(
+        compose + ["up", "-d", "--no-deps", "app"],
+        dry_run=args.dry_run,
+    )
+    readiness_result = _wait_ready(
+        compose,
+        timeout_seconds=args.readiness_timeout,
+        dry_run=args.dry_run,
+    )
+    return {
+        "project_name": args.project_name,
+        "postgres": postgres_result,
+        "qdrant": qdrant_result,
+        "state": state_result,
+        "readiness": readiness_result,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -278,6 +532,7 @@ def build_parser() -> argparse.ArgumentParser:
             default=PROJECT_ROOT / ".env.production",
         )
         operation.add_argument("--compose-file", action="append", default=[])
+        operation.add_argument("--project-name", default=CURRENT_PROJECT_NAME)
         operation.add_argument("--collection", default="corporate_rag")
         operation.add_argument("--postgres-user", default="postgres")
         operation.add_argument("--postgres-db", default="diploma")
@@ -285,9 +540,11 @@ def build_parser() -> argparse.ArgumentParser:
     backup = subparsers.choices["backup"]
     backup.add_argument("--output", type=Path, default=PROJECT_ROOT / "backups")
     restore = subparsers.choices["restore"]
+    restore.set_defaults(project_name=None)
     restore.add_argument("--from", dest="from_dir", type=Path, required=True)
     restore.add_argument("--confirm-restore", action="store_true")
-    restore.add_argument("--restore-corpus", action="store_true")
+    restore.add_argument("--allow-current-project", action="store_true")
+    restore.add_argument("--readiness-timeout", type=float, default=300.0)
     return parser
 
 
@@ -298,8 +555,8 @@ def main() -> None:
             backup_dir = create_backup(args)
             print(f"Backup ready: {backup_dir}")
         else:
-            restore_backup(args)
-            print("Restore completed")
+            result = restore_backup(args)
+            print("Restore completed: " + json.dumps(result, sort_keys=True))
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"Deployment backup error: {exc}", file=sys.stderr)
         raise SystemExit(1) from None

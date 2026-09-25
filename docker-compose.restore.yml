@@ -1,0 +1,22 @@
+services:
+  app:
+    ports: !reset []
+    environment:
+      RAG_TRACING_ENABLED: "false"
+      OPENAI_API_KEY: ${RESTORE_OPENAI_API_KEY:-restore-validation-no-provider-call}
+      OPENROUTER_API_KEY: ""
+    volumes: !override
+      - restore-embedding-cache:/app/.cache/embeddings
+      - rag-state:/app/.cache/rag
+      - restore-corpus:/app/data
+    depends_on: !reset {}
+
+  qdrant:
+    ports: !reset []
+
+  phoenix:
+    ports: !reset []
+
+volumes:
+  restore-corpus: {}
+  restore-embedding-cache: {}
