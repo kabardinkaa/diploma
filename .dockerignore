@@ -21,6 +21,7 @@ build/
 dist/
 *.egg-info/
 var/
+backups/
 .tmp*/
 /*.db
 /*.sqlite*

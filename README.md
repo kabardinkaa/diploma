@@ -1,5 +1,29 @@
 # Дипломный проект: ИИ-ассистент техподдержки
 
+## Public deployment quick start
+
+Публичный контур запускается через Caddy; наружу доступны только `80/443`, а
+`app`, Postgres, Qdrant и Phoenix остаются внутри Docker networks.
+
+```powershell
+Copy-Item .env.production.example .env.production
+# Заполните .env.production реальными domain/tokens/passwords/provider key.
+python scripts/validate_production_config.py --env-file .env.production
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production config --quiet
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+
+Проверки: `https://<PUBLIC_DOMAIN>/health/live`, `/health/ready`, `/docs`.
+Остановка без удаления данных:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production down
+```
+
+Полный TLS, env, backup/restore и production smoke-контракт описаны в
+[docs/deployment.md](docs/deployment.md). Локальный dev workflow остаётся
+`docker compose up -d --build` с API на `http://localhost:8000`.
+
 ## Тема проекта
 
 ИИ-ассистент для техподдержки сотрудников контактного центра.

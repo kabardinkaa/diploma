@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from ipaddress import ip_address, ip_network
 import math
 import time
 from collections import defaultdict, deque
@@ -92,20 +93,47 @@ class PublicRateLimitMiddleware:
         max_concurrent: int,
         paths: set[tuple[str, str]],
         enabled: bool = True,
+        trusted_proxy_cidrs: str = "",
     ) -> None:
         self.app = app
         self.paths = paths
         self.enabled = enabled
+        self.trusted_proxy_networks = tuple(
+            ip_network(value.strip(), strict=False)
+            for value in trusted_proxy_cidrs.split(",")
+            if value.strip()
+        )
         self.limiter = InMemoryRequestLimiter(
             requests=requests,
             window_seconds=window_seconds,
             max_concurrent=max_concurrent,
         )
 
-    @staticmethod
-    def _client_id(scope: Scope) -> str:
+    def _client_id(self, scope: Scope) -> str:
         client = scope.get("client")
-        return str(client[0]) if client else "unknown"
+        peer = str(client[0]) if client else "unknown"
+        try:
+            peer_address = ip_address(peer)
+        except ValueError:
+            return peer
+
+        if not any(
+            peer_address in network for network in self.trusted_proxy_networks
+        ):
+            return peer
+
+        headers = {
+            key.lower(): value
+            for key, value in scope.get("headers", [])
+        }
+        forwarded_for = headers.get(b"x-forwarded-for", b"").decode(
+            "latin-1", errors="ignore"
+        )
+        candidate = forwarded_for.split(",", 1)[0].strip()
+        try:
+            return str(ip_address(candidate))
+        except ValueError:
+            return peer
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         route = (str(scope.get("method", "")).upper(), str(scope.get("path", "")))

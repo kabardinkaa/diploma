@@ -1,5 +1,7 @@
 from functools import lru_cache
+from ipaddress import ip_address, ip_network
 from pathlib import Path
+import re
 from typing import Literal
 
 from pydantic import Field, SecretStr
@@ -70,6 +72,9 @@ class Settings(BaseSettings):
     app_name: str = Field(default="Diploma AI Assistant API", alias="APP_NAME")
     app_version: str = Field(default="3.4.0", alias="APP_VERSION")
     environment: str = Field(default="dev", alias="APP_ENV")
+    public_domain: str | None = Field(default=None, alias="PUBLIC_DOMAIN")
+    public_proxy_ip: str | None = Field(default=None, alias="PUBLIC_PROXY_IP")
+    trusted_proxy_cidrs: str = Field(default="", alias="TRUSTED_PROXY_CIDRS")
 
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     db_pool_min_size: int = Field(default=1, ge=0, alias="DB_POOL_MIN_SIZE")
@@ -297,6 +302,16 @@ class Settings(BaseSettings):
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
+    @property
+    def trusted_proxy_networks(self) -> tuple[object, ...]:
+        """Return validated networks used only for direct reverse-proxy peers."""
+
+        return tuple(
+            ip_network(value.strip(), strict=False)
+            for value in self.trusted_proxy_cidrs.split(",")
+            if value.strip()
+        )
+
     def model_post_init(self, __context: object) -> None:
         if self.db_pool_min_size > self.db_pool_max_size:
             raise ValueError("DB_POOL_MIN_SIZE must not exceed DB_POOL_MAX_SIZE")
@@ -315,6 +330,58 @@ class Settings(BaseSettings):
                 joined = ", ".join(missing)
                 raise ValueError(
                     f"Public deployment requires non-placeholder secrets: {joined}"
+                )
+
+            domain = (self.public_domain or "").strip().lower()
+            if (
+                not domain
+                or domain.startswith("change-me")
+                or "://" in domain
+                or "/" in domain
+                or not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", domain)
+            ):
+                raise ValueError(
+                    "Public deployment requires a valid PUBLIC_DOMAIN host name"
+                )
+
+            provider_key = self.llm.openai_api_key or self.llm.openrouter_api_key
+            required_secrets = [
+                name
+                for name, value in (
+                    ("OPENAI_API_KEY or OPENROUTER_API_KEY", provider_key),
+                    ("QDRANT_API_KEY", self.qdrant_api_key),
+                )
+                if not is_usable_secret(value)
+            ]
+            if required_secrets:
+                joined = ", ".join(required_secrets)
+                raise ValueError(
+                    f"Public deployment requires non-placeholder credentials: {joined}"
+                )
+
+            try:
+                proxy_networks = self.trusted_proxy_networks
+            except ValueError as exc:
+                raise ValueError(
+                    "TRUSTED_PROXY_CIDRS must contain valid IP networks"
+                ) from exc
+            if not proxy_networks:
+                raise ValueError(
+                    "Public deployment requires TRUSTED_PROXY_CIDRS"
+                )
+            if any(network.prefixlen == 0 for network in proxy_networks):
+                raise ValueError(
+                    "TRUSTED_PROXY_CIDRS must not trust the entire Internet"
+                )
+            try:
+                proxy_address = ip_address((self.public_proxy_ip or "").strip())
+            except ValueError as exc:
+                raise ValueError(
+                    "Public deployment requires a valid PUBLIC_PROXY_IP"
+                ) from exc
+            if not any(proxy_address in network for network in proxy_networks):
+                raise ValueError(
+                    "PUBLIC_PROXY_IP must be included in TRUSTED_PROXY_CIDRS"
                 )
 
 @lru_cache

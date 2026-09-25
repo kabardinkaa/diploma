@@ -176,6 +176,7 @@ app.add_middleware(
     window_seconds=settings.public_rate_limit_window_seconds,
     max_concurrent=settings.public_max_concurrent_requests,
     enabled=settings.public_rate_limit_enabled,
+    trusted_proxy_cidrs=settings.trusted_proxy_cidrs,
     paths={
         ("POST", "/chat"),
         ("POST", "/chat/stream"),

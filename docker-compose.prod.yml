@@ -1,0 +1,116 @@
+x-production-env: &production-env
+  env_file: !override
+    - ${PUBLIC_ENV_FILE:-.env.production}
+
+services:
+  config-check:
+    <<: *production-env
+    image: diploma-ai-assistant:3.4.0
+    command: ["python", "scripts/validate_production_config.py", "--from-environment"]
+    environment:
+      APP_ENV: public
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in the production env file}
+      PUBLIC_PROXY_SUBNET: ${PUBLIC_PROXY_SUBNET:-172.31.250.0/24}
+      PUBLIC_PROXY_IP: ${PUBLIC_PROXY_IP:-172.31.250.10}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-172.31.250.10/32}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN in the production env file}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:?Set INTERNAL_TOKEN in the production env file}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the production env file}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the production env file}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:?Set QDRANT_API_KEY in the production env file}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    restart: "no"
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-10m}
+        max-file: ${DOCKER_LOG_MAX_FILES:-3}
+
+  app:
+    <<: *production-env
+    ports: !reset []
+    environment:
+      APP_ENV: public
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in the production env file}
+      PUBLIC_PROXY_IP: ${PUBLIC_PROXY_IP:-172.31.250.10}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-172.31.250.10/32}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN in the production env file}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:?Set INTERNAL_TOKEN in the production env file}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the production env file}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:?Set QDRANT_API_KEY in the production env file}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    networks:
+      - default
+      - public-edge
+    depends_on:
+      config-check:
+        condition: service_completed_successfully
+
+  ingest:
+    <<: *production-env
+    environment:
+      QDRANT_API_KEY: ${QDRANT_API_KEY:?Set QDRANT_API_KEY in the production env file}
+    depends_on:
+      config-check:
+        condition: service_completed_successfully
+
+  bot:
+    <<: *production-env
+
+  postgres:
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-diploma}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the production env file}
+
+  qdrant:
+    ports: !reset []
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?Set QDRANT_API_KEY in the production env file}
+
+  phoenix:
+    ports: !reset []
+
+  proxy:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in the production env file}
+      PROXY_MAX_REQUEST_BODY: ${PROXY_MAX_REQUEST_BODY:-12MB}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      public-edge:
+        ipv4_address: ${PUBLIC_PROXY_IP:-172.31.250.10}
+    restart: unless-stopped
+    mem_limit: ${PROXY_MEMORY_LIMIT:-256m}
+    cpus: ${PROXY_CPU_LIMIT:-0.5}
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-10m}
+        max-file: ${DOCKER_LOG_MAX_FILES:-3}
+
+volumes:
+  caddy-data: {}
+  caddy-config: {}
+
+networks:
+  public-edge:
+    ipam:
+      config:
+        - subnet: ${PUBLIC_PROXY_SUBNET:-172.31.250.0/24}
