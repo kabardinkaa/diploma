@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from ipaddress import ip_address, ip_network
+from ipaddress import ip_network
 import math
 import time
 from collections import defaultdict, deque
@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from app.security.identity import resolve_client_ip
 
 
 @dataclass(frozen=True)
@@ -110,30 +112,7 @@ class PublicRateLimitMiddleware:
         )
 
     def _client_id(self, scope: Scope) -> str:
-        client = scope.get("client")
-        peer = str(client[0]) if client else "unknown"
-        try:
-            peer_address = ip_address(peer)
-        except ValueError:
-            return peer
-
-        if not any(
-            peer_address in network for network in self.trusted_proxy_networks
-        ):
-            return peer
-
-        headers = {
-            key.lower(): value
-            for key, value in scope.get("headers", [])
-        }
-        forwarded_for = headers.get(b"x-forwarded-for", b"").decode(
-            "latin-1", errors="ignore"
-        )
-        candidate = forwarded_for.split(",", 1)[0].strip()
-        try:
-            return str(ip_address(candidate))
-        except ValueError:
-            return peer
+        return resolve_client_ip(scope, self.trusted_proxy_networks)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         route = (str(scope.get("method", "")).upper(), str(scope.get("path", "")))

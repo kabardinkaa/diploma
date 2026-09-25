@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -14,6 +13,10 @@ from app.schemas.agent import AgentMessage, AgentStreamRequest
 from app.core.sse import sse_error_events
 from app.deps.providers import SettingsDep
 from app.security.tokens import secret_matches
+from app.security.identity import (
+    public_session_cookie_options,
+    resolve_public_agent_identity,
+)
 
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -53,15 +56,18 @@ def _agent_context(
     payload: AgentStreamRequest,
     settings: SettingsDep,
     admin_token: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, str | None]:
     if admin_token is not None:
         if not secret_matches(admin_token, settings.admin_token):
             raise HTTPException(status_code=403, detail="Invalid admin token")
-        return f"admin:{payload.thread_id}", "write-with-approve"
+        return f"admin:{payload.thread_id}", "write-with-approve", None
 
-    client_host = request.client.host if request.client else "unknown"
-    client_scope = hashlib.sha256(client_host.encode("utf-8")).hexdigest()[:16]
-    return f"public:{client_scope}:{payload.thread_id}", "read-only"
+    identity = resolve_public_agent_identity(request, settings)
+    return (
+        f"public:{identity.principal_id}:{payload.thread_id}",
+        "read-only",
+        identity.cookie_value,
+    )
 
 
 async def _events(
@@ -113,13 +119,13 @@ async def agent_stream(
     settings: SettingsDep,
     x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
 ) -> StreamingResponse:
-    effective_thread_id, user_role = _agent_context(
+    effective_thread_id, user_role, session_cookie = _agent_context(
         request,
         payload,
         settings,
         x_admin_token,
     )
-    return StreamingResponse(
+    response = StreamingResponse(
         _events(
             request,
             payload,
@@ -129,3 +135,9 @@ async def agent_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+    if session_cookie is not None:
+        response.set_cookie(
+            value=session_cookie,
+            **public_session_cookie_options(settings),
+        )
+    return response

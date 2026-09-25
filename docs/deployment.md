@@ -18,6 +18,7 @@ Copy-Item .env.production.example .env.production
 
 - `PUBLIC_DOMAIN`;
 - `ADMIN_TOKEN` и `INTERNAL_TOKEN`;
+- `PUBLIC_SESSION_SECRET` (отдельный случайный секрет не короче 32 символов);
 - `POSTGRES_PASSWORD` и согласованный `DATABASE_URL`;
 - `QDRANT_API_KEY`;
 - один provider key: `OPENAI_API_KEY` или `OPENROUTER_API_KEY`;
@@ -25,7 +26,8 @@ Copy-Item .env.production.example .env.production
 
 Генерируйте независимые длинные случайные секреты. Значения `change-me-*`,
 пустые обязательные credentials, URL вместо host name, глобальный trusted proxy
-`0.0.0.0/0` и несогласованные proxy IP/subnet отклоняются. `.env.production`
+`0.0.0.0/0`, короткий/placeholder public session secret и несогласованные
+proxy IP/subnet отклоняются. `.env.production`
 игнорируется Git и не включается в backup по умолчанию.
 
 Проверка до запуска не печатает секреты:
@@ -107,6 +109,12 @@ Caddy по умолчанию формирует upstream `X-Forwarded-For` из
 не доверяет входному spoofed значению. App проверяет, что `PUBLIC_PROXY_IP`
 попадает в trusted CIDR. В dev `TRUSTED_PROXY_CIDRS` пуст, поэтому произвольный
 заголовок клиента игнорируется.
+
+Public persistent-agent не использует IP как owner identity. При первом
+`/agent/stream` сервер выдаёт подписанную opaque cookie с `HttpOnly`,
+`SameSite=Lax`, `Path=/agent` и `Secure` в public mode. Checkpoint namespace
+строится из server-controlled principal и client `thread_id`; cookie token и его
+секрет не пишутся в logs/checkpoints.
 
 При конфликте `172.31.250.0/24` с сетью хоста выберите другой приватный subnet и
 одновременно согласуйте все три значения. Не используйте `0.0.0.0/0` или

@@ -23,6 +23,7 @@ def _public_settings(**overrides) -> Settings:
         "TRUSTED_PROXY_CIDRS": "172.31.250.10/32",
         "ADMIN_TOKEN": "real-admin-secret",
         "INTERNAL_TOKEN": "real-internal-secret",
+        "PUBLIC_SESSION_SECRET": "a-real-public-session-secret-with-32-chars",
         "QDRANT_API_KEY": "real-qdrant-secret",
         "llm": LLMSettings(
             _env_file=None,
@@ -95,6 +96,11 @@ def test_public_configuration_accepts_complete_safe_contract() -> None:
         ({"TRUSTED_PROXY_CIDRS": "0.0.0.0/0"}, "entire Internet"),
         ({"PUBLIC_PROXY_IP": "172.31.250.3"}, "PUBLIC_PROXY_IP"),
         ({"QDRANT_API_KEY": "change-me-qdrant"}, "QDRANT_API_KEY"),
+        (
+            {"PUBLIC_SESSION_SECRET": "change-me-public-session-secret"},
+            "PUBLIC_SESSION_SECRET",
+        ),
+        ({"PUBLIC_SESSION_SECRET": "too-short"}, "at least 32 characters"),
         (
             {
                 "llm": LLMSettings(

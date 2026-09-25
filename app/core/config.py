@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.security.tokens import is_usable_secret
+from app.security.tokens import is_usable_secret, secret_value
 
 
 class LLMSettings(BaseSettings):
@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     public_domain: str | None = Field(default=None, alias="PUBLIC_DOMAIN")
     public_proxy_ip: str | None = Field(default=None, alias="PUBLIC_PROXY_IP")
     trusted_proxy_cidrs: str = Field(default="", alias="TRUSTED_PROXY_CIDRS")
+    public_session_secret: SecretStr | None = Field(
+        default=None,
+        alias="PUBLIC_SESSION_SECRET",
+    )
+    public_session_ttl_seconds: int = Field(
+        default=30 * 24 * 60 * 60,
+        ge=300,
+        le=365 * 24 * 60 * 60,
+        alias="PUBLIC_SESSION_TTL_SECONDS",
+    )
 
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     db_pool_min_size: int = Field(default=1, ge=0, alias="DB_POOL_MIN_SIZE")
@@ -323,6 +333,7 @@ class Settings(BaseSettings):
                 for name, value in (
                     ("ADMIN_TOKEN", self.admin_token),
                     ("INTERNAL_TOKEN", self.internal_token),
+                    ("PUBLIC_SESSION_SECRET", self.public_session_secret),
                 )
                 if not is_usable_secret(value)
             ]
@@ -330,6 +341,10 @@ class Settings(BaseSettings):
                 joined = ", ".join(missing)
                 raise ValueError(
                     f"Public deployment requires non-placeholder secrets: {joined}"
+                )
+            if len(secret_value(self.public_session_secret)) < 32:
+                raise ValueError(
+                    "PUBLIC_SESSION_SECRET must contain at least 32 characters"
                 )
 
             domain = (self.public_domain or "").strip().lower()
