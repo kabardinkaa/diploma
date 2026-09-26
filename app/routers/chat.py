@@ -1,23 +1,20 @@
-import json
+from typing import Annotated
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.exceptions import RequestValidationError
-from pydantic import ValidationError
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.admin.deps import AdminDep
 from app.core.sse import sse_error_events
 from app.deps.providers import SettingsDep
 from app.deps.providers import LLMServiceDep
-from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Message
+from app.schemas.chat import ChatRequest, ChatResponse, Message
 from app.schemas.openapi import ErrorResponse, error_response, http_error_response, sse_response
 from app.security.public_budget import (
     PublicGenerationBudget,
     get_public_generation_budget,
 )
-from typing import Annotated
-from fastapi import Depends
 
 router = APIRouter()
 PublicBudgetDep = Annotated[

@@ -4,7 +4,6 @@ from fastapi import Depends, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from app.chat.deps import ChatRepositoryDep, SettingsDep
-from app.chat.repository import ChatRepository
 from app.security.tokens import secret_matches
 
 

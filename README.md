@@ -161,7 +161,7 @@ python -m compileall -q app bot scripts
 docker compose config --quiet
 ```
 
-Последний полный прогон перед этим documentation-этапом: **373 passed, 0 skipped, 0 warnings**. Evaluation suites и их артефакты описаны отдельно в [docs/rag_evaluation.md](docs/rag_evaluation.md).
+Полный regression-набор запускается командой `pytest -q`; актуальный результат фиксируется в отчёте о финальной технической проверке. Evaluation suites и их артефакты описаны отдельно в [docs/rag_evaluation.md](docs/rag_evaluation.md).
 
 ## Public deployment
 

@@ -15,7 +15,7 @@ import openai
 from app.core.config import Settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Usage
-from app.security.llm_guard import BLOCKED_RESPONSE, filter_output, is_prompt_attack
+from app.security.llm_guard import BLOCKED_RESPONSE, is_prompt_attack
 
 logger = structlog.get_logger("llm-service")
 
@@ -204,5 +204,3 @@ class LLMService:
             *(safe_complete(req) for req in requests),
             return_exceptions=False,
         )
-
-        return results
