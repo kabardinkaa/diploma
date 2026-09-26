@@ -6,7 +6,7 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, File, Form, UploadFile
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.admin.deps import AdminDep
 from app.core.config import Settings, get_settings
@@ -28,21 +28,47 @@ from app.services.ingestion import (
     IngestionService,
     validate_category,
 )
+from app.schemas.openapi import error_response, http_error_response
 
 logger = structlog.get_logger("documents-router")
-router = APIRouter(prefix="/documents", tags=["documents"])
+router = APIRouter(prefix="/documents", tags=["Documents / Ingestion"])
 _ingestion_lock = asyncio.Lock()
 
 
 class ReindexRequest(BaseModel):
-    mode: Literal["full", "incremental", "files"]
-    files: list[str] | None = None
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"mode": "incremental"},
+                {"mode": "files", "files": ["vpn/vpn_access.md"]},
+            ]
+        }
+    )
+
+    mode: Literal["full", "incremental", "files"] = Field(
+        description="Ingestion scope; full mode rebuilds only `corporate_rag`"
+    )
+    files: list[str] | None = Field(
+        default=None,
+        description="Relative corpus paths required when mode is `files`",
+    )
 
     @model_validator(mode="after")
     def validate_files_mode(self) -> "ReindexRequest":
         if self.mode == "files" and not self.files:
             raise ValueError("files must be non-empty when mode='files'")
         return self
+
+
+class UploadAccepted(BaseModel):
+    status: Literal["accepted"]
+    file_name: str
+    category: str
+
+
+class ReindexAccepted(BaseModel):
+    status: Literal["accepted"]
+    mode: Literal["full", "incremental", "files"]
 
 
 async def _reserve_ingestion() -> None:
@@ -156,7 +182,48 @@ async def _run_reindex(
         _release_ingestion()
 
 
-@router.post("/upload", status_code=202)
+@router.post(
+    "/upload",
+    status_code=202,
+    response_model=UploadAccepted,
+    summary="Загрузить документ в production corpus",
+    description=(
+        "Administrative multipart upload protected by `X-Admin-Token`. Accepts "
+        "bounded PDF, DOCX, HTML/HTM, or Markdown after filename, MIME/signature, "
+        "archive, and parser validation. Existing corpus files are never overwritten."
+    ),
+    responses={
+        400: error_response(
+            "Unsafe filename",
+            code="invalid_document",
+            message="Недопустимое имя файла",
+        ),
+        403: http_error_response(
+            "Missing or invalid admin token",
+            detail="Admin token required",
+        ),
+        409: error_response(
+            "File already exists or another ingestion operation is running",
+            code="file_conflict",
+            message="Файл с таким именем уже существует",
+        ),
+        413: error_response(
+            "Upload exceeds the configured size or archive limits",
+            code="payload_too_large",
+            message="Размер файла превышает допустимый лимит",
+        ),
+        415: error_response(
+            "Unsupported extension, MIME type, or signature",
+            code="unsupported_file_type",
+            message="Тип файла не поддерживается",
+        ),
+        422: error_response(
+            "Document is corrupt or fails parser validation",
+            code="invalid_document",
+            message="Документ повреждён или не соответствует заявленному формату",
+        ),
+    },
+)
 async def upload_document(
     background_tasks: BackgroundTasks,
     _: AdminDep,
@@ -221,7 +288,38 @@ async def upload_document(
             _release_ingestion()
 
 
-@router.post("/reindex", status_code=202)
+@router.post(
+    "/reindex",
+    status_code=202,
+    response_model=ReindexAccepted,
+    summary="Запустить переиндексацию corpus",
+    description=(
+        "Administrative asynchronous reindex protected by `X-Admin-Token`. "
+        "Operations are serialized and bounded by configured file-count and total-size "
+        "limits. Full mode affects only `corporate_rag` and its ingestion state."
+    ),
+    responses={
+        403: http_error_response(
+            "Missing or invalid admin token",
+            detail="Admin token required",
+        ),
+        409: error_response(
+            "Another ingestion operation is running",
+            code="ingestion_busy",
+            message="Операция индексации уже выполняется",
+        ),
+        413: error_response(
+            "Reindex exceeds configured file-count or total-size limits",
+            code="reindex_limit_exceeded",
+            message="Объём операции переиндексации превышает допустимый лимит",
+        ),
+        422: error_response(
+            "Invalid mode, path, file list, or empty full corpus",
+            code="invalid_document",
+            message="Документ повреждён или не соответствует заявленному формату",
+        ),
+    },
+)
 async def reindex_documents(
     payload: ReindexRequest,
     background_tasks: BackgroundTasks,

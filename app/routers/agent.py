@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import Command
 
 from app.schemas.agent import AgentMessage, AgentStreamRequest
+from app.schemas.openapi import error_response, http_error_response, sse_response
 from app.core.sse import sse_error_events
 from app.deps.providers import SettingsDep
 from app.security.tokens import secret_matches
@@ -26,7 +27,7 @@ from app.security.identity import (
 from app.services.retention import protect_retained_state
 
 
-router = APIRouter(prefix="/agent", tags=["agent"])
+router = APIRouter(prefix="/agent", tags=["Agent"])
 PublicBudgetDep = Annotated[
     PublicGenerationBudget,
     Depends(get_public_generation_budget),
@@ -133,7 +134,42 @@ async def _events(
             yield event
 
 
-@router.post("/stream")
+@router.post(
+    "/stream",
+    response_class=StreamingResponse,
+    summary="Запустить или продолжить persistent agent",
+    description=(
+        "Streams persistent LangGraph updates as `text/event-stream`. Public calls "
+        "receive a signed server-side session identity and are always `read-only`; "
+        "the client `thread_id` is only a conversation label and is not an owner "
+        "credential. Supplying `user_role=full` cannot elevate privileges. "
+        "Operators may authorize with `X-Admin-Token` to obtain "
+        "`write-with-approve`; a write tool then emits an interrupt and runs only "
+        "after a separate request with `resume=true`."
+    ),
+    responses={
+        200: sse_response(
+            "SSE updates/messages, optional interrupt, and terminal done event",
+            "data: {\"type\":\"update\",\"mode\":\"updates\",\"data\":{}}\n\n"
+            "data: {\"type\":\"done\",\"thread_id\":\"demo-vpn-question\"}\n\n",
+        ),
+        403: http_error_response(
+            "An `X-Admin-Token` header was supplied but is invalid",
+            detail="Invalid admin token",
+        ),
+        422: error_response(
+            "Request validation failed",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+        429: error_response(
+            "Request-rate or concurrency limit reached before streaming",
+            code="rate_limit_exceeded",
+            message="Too many expensive requests. Try again later.",
+        ),
+    },
+    openapi_extra={"security": [{}, {"AdminToken": []}]},
+)
 async def agent_stream(
     payload: AgentStreamRequest,
     request: Request,

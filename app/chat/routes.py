@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.chat.deps import ChatServiceDep
 from app.chat.domain import Chat, ChatMessage
@@ -15,16 +15,26 @@ from app.core.uploads import normalize_safe_filename
 from app.security.public_budget import get_public_generation_budget
 from app.services.rag import sanitize_sse_payload
 from app.services.retention import protect_retained_state
+from app.schemas.openapi import error_response, http_error_response, sse_response
 
 
 router = APIRouter(
     prefix="/chats",
-    tags=["chat-history"],
+    tags=["Chat History"],
     dependencies=[Depends(require_internal_in_public)],
 )
 
 
 class CreateChatIn(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "owner_external_id": "telegram-user-123",
+                "interface": "telegram",
+            }
+        }
+    )
+
     owner_external_id: str = Field(..., min_length=1)
     interface: str = Field(..., min_length=1)
     system_prompt: str | None = None
@@ -47,7 +57,26 @@ class FeedbackOut(BaseModel):
     duplicate: bool = False
 
 
-@router.post("", response_model=CreateChatOut)
+@router.post(
+    "",
+    response_model=CreateChatOut,
+    summary="Создать persistent chat",
+    description=(
+        "Creates a server-side chat for a trusted client. In public deployments "
+        "this service-to-service API requires `X-Internal-Token`."
+    ),
+    responses={
+        403: http_error_response(
+            "Missing or invalid internal token in public mode",
+            detail="Internal token required",
+        ),
+        422: error_response(
+            "Request validation failed",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+    },
+)
 async def create_chat(
     request: CreateChatIn,
     service: ChatServiceDep,
@@ -61,7 +90,24 @@ async def create_chat(
     return CreateChatOut(chat_id=chat.id)
 
 
-@router.get("/{chat_id}", response_model=Chat)
+@router.get(
+    "/{chat_id}",
+    response_model=Chat,
+    summary="Получить persistent chat",
+    description="Returns trusted-client chat metadata by ID.",
+    responses={
+        403: http_error_response(
+            "Missing or invalid internal token in public mode",
+            detail="Internal token required",
+        ),
+        404: http_error_response("Chat not found", detail="Chat not found"),
+        422: error_response(
+            "Invalid chat UUID",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+    },
+)
 async def get_chat(
     chat_id: UUID,
     service: ChatServiceDep,
@@ -74,7 +120,24 @@ async def get_chat(
     return chat
 
 
-@router.get("/{chat_id}/messages", response_model=list[ChatMessage])
+@router.get(
+    "/{chat_id}/messages",
+    response_model=list[ChatMessage],
+    summary="Получить историю сообщений",
+    description="Returns a bounded persistent message history for a trusted client.",
+    responses={
+        403: http_error_response(
+            "Missing or invalid internal token in public mode",
+            detail="Internal token required",
+        ),
+        404: http_error_response("Chat not found", detail="Chat not found"),
+        422: error_response(
+            "Invalid chat UUID or limit",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+    },
+)
 async def list_messages(
     chat_id: UUID,
     service: ChatServiceDep,
@@ -88,7 +151,59 @@ async def list_messages(
     return await service.list_messages(chat_id=chat_id, limit=limit)
 
 
-@router.post("/{chat_id}/messages")
+@router.post(
+    "/{chat_id}/messages",
+    response_class=StreamingResponse,
+    summary="Отправить text/media message",
+    description=(
+        "Trusted-client multipart SSE endpoint used by the Telegram bot. Supports "
+        "bounded text, image, PDF, DOCX, voice, and audio input. Events include "
+        "token frames, a `sources` event, and terminal `done`; failures after stream "
+        "start use safe `error` then `done` events."
+    ),
+    responses={
+        200: sse_response(
+            "SSE token stream followed by sources and done",
+            "data: {\"type\":\"token\",\"delta\":\"VPN\"}\n\n"
+            "event: sources\ndata: {\"type\":\"sources\",\"sources\":[]}\n\n"
+            "data: {\"type\":\"done\",\"message_id\":\"...\"}\n\n",
+        ),
+        400: error_response(
+            "Unsafe media filename",
+            code="invalid_document",
+            message="Недопустимое имя файла",
+        ),
+        403: http_error_response(
+            "Internal authentication failed or moderation blocked the message",
+            detail="Internal token required",
+        ),
+        413: error_response(
+            "Media exceeds the configured size limit",
+            code="payload_too_large",
+            message="Размер файла превышает допустимый лимит",
+        ),
+        415: error_response(
+            "Unsupported media type",
+            code="unsupported_file_type",
+            message="Тип файла не поддерживается",
+        ),
+        422: error_response(
+            "Invalid multipart payload or media content",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+        429: error_response(
+            "Public generation quota is exhausted before streaming starts",
+            code="public_quota_exhausted",
+            message="Public demo generation quota is exhausted",
+        ),
+        503: error_response(
+            "Public generation is disabled before streaming starts",
+            code="public_generation_disabled",
+            message="Public demo generation is disabled",
+        ),
+    },
+)
 async def send_message(
     chat_id: UUID,
     request: Request,
@@ -188,7 +303,23 @@ async def send_message(
     )
 
 
-@router.delete("/{chat_id}/messages")
+@router.delete(
+    "/{chat_id}/messages",
+    summary="Очистить историю chat",
+    description="Soft-deletes message history for a trusted-client chat.",
+    responses={
+        403: http_error_response(
+            "Missing or invalid internal token in public mode",
+            detail="Internal token required",
+        ),
+        404: http_error_response("Chat not found", detail="Chat not found"),
+        422: error_response(
+            "Invalid chat UUID",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+    },
+)
 async def clear_messages(
     chat_id: UUID,
     service: ChatServiceDep,
@@ -203,7 +334,24 @@ async def clear_messages(
     return {"status": "ok"}
 
 
-@router.post("/{chat_id}/messages/{message_id}/feedback", response_model=FeedbackOut)
+@router.post(
+    "/{chat_id}/messages/{message_id}/feedback",
+    response_model=FeedbackOut,
+    summary="Сохранить feedback",
+    description="Stores idempotent up/down feedback for a trusted-client response.",
+    responses={
+        403: http_error_response(
+            "Missing or invalid internal token in public mode",
+            detail="Internal token required",
+        ),
+        404: http_error_response("Chat or message not found", detail="Chat not found"),
+        422: error_response(
+            "Invalid UUID or feedback value",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+    },
+)
 async def save_feedback(
     chat_id: UUID,
     message_id: UUID,
@@ -225,7 +373,23 @@ async def save_feedback(
     )
 
 
-@router.post("/{chat_id}/handoff")
+@router.post(
+    "/{chat_id}/handoff",
+    summary="Передать chat оператору",
+    description="Pauses automated processing for the trusted-client operator flow.",
+    responses={
+        403: http_error_response(
+            "Missing or invalid internal token in public mode",
+            detail="Internal token required",
+        ),
+        404: http_error_response("Chat not found", detail="Chat not found"),
+        422: error_response(
+            "Invalid chat UUID",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+    },
+)
 async def set_handoff(
     chat_id: UUID,
     service: ChatServiceDep,

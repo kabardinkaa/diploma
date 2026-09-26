@@ -3,7 +3,9 @@ from typing import Annotated, Any, Protocol
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-router = APIRouter(tags=["health"])
+from app.schemas.openapi import HealthResponse, ReadinessResponse
+
+router = APIRouter(tags=["Health"])
 
 
 class ReadinessProbe(Protocol):
@@ -24,7 +26,13 @@ def _live_response() -> dict[str, str]:
 
 @router.get(
     "/health",
+    response_model=HealthResponse,
     summary="Проверка состояния API",
+    description=(
+        "Backward-compatible lightweight liveness endpoint. It confirms that "
+        "the HTTP process responds and does not probe PostgreSQL, Qdrant, the "
+        "LLM provider, or Phoenix."
+    ),
     responses={
         200: {"description": "API работает"},
     },
@@ -37,7 +45,12 @@ async def health() -> dict[str, str]:
 
 @router.get(
     "/health/live",
+    response_model=HealthResponse,
     summary="Проверка жизнеспособности процесса API",
+    description=(
+        "Fast liveness probe. It remains independent of PostgreSQL, Qdrant, "
+        "the LLM provider, and Phoenix."
+    ),
     responses={200: {"description": "Процесс API работает"}},
 )
 async def live() -> dict[str, str]:
@@ -46,10 +59,19 @@ async def live() -> dict[str, str]:
 
 @router.get(
     "/health/ready",
+    response_model=ReadinessResponse,
     summary="Проверка готовности API и обязательных зависимостей",
+    description=(
+        "Checks PostgreSQL, Qdrant, and the presence of the `corporate_rag` "
+        "collection. It never performs a paid LLM request and never exposes "
+        "connection strings or raw dependency errors."
+    ),
     responses={
         200: {"description": "API готов обслуживать запросы"},
-        503: {"description": "Обязательная зависимость недоступна"},
+        503: {
+            "model": ReadinessResponse,
+            "description": "Обязательная зависимость недоступна",
+        },
     },
 )
 async def ready(probe: ReadinessDep) -> JSONResponse:

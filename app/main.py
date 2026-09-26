@@ -191,12 +191,69 @@ async def lifespan(app: FastAPI):
 
 settings = get_settings()
 
+OPENAPI_TAGS = [
+    {
+        "name": "Health",
+        "description": "Fast liveness and dependency readiness probes.",
+    },
+    {
+        "name": "Models",
+        "description": "Server-configured models available to this deployment.",
+    },
+    {
+        "name": "Chat",
+        "description": "Public synchronous and SSE chat endpoints.",
+    },
+    {
+        "name": "RAG",
+        "description": "Public retrieval-augmented answers from `corporate_rag`.",
+    },
+    {
+        "name": "Agent",
+        "description": "Persistent LangGraph agent with server-controlled roles.",
+    },
+    {
+        "name": "Documents / Ingestion",
+        "description": "Administrative corpus upload and reindex operations.",
+    },
+    {
+        "name": "Chat History",
+        "description": (
+            "Persistent chat API used by trusted clients such as the Telegram bot. "
+            "It requires the internal token in public deployments."
+        ),
+    },
+    {
+        "name": "Admin",
+        "description": "Operator endpoints protected by `X-Admin-Token`.",
+    },
+    {
+        "name": "Internal",
+        "description": (
+            "Service-to-service operations protected by `X-Internal-Token`; "
+            "not a public client API."
+        ),
+    },
+]
+
 app = FastAPI(
     title=settings.app_name,
-    description="FastAPI-сервис для LLM в дипломном проекте",
+    description=(
+        "Production-ready demo backend for an AI support assistant. It exposes "
+        "bounded chat and SSE generation, RAG over the `corporate_rag` knowledge "
+        "base, a persistent confirmation-aware agent, and trusted chat-history "
+        "operations used by the Telegram bot. Public, admin, and internal "
+        "boundaries are documented per operation below."
+    ),
     version=settings.app_version,
     lifespan=lifespan,
     default_response_class=SafeJSONResponse,
+    openapi_tags=OPENAPI_TAGS,
+    swagger_ui_parameters={
+        "displayRequestDuration": True,
+        "filter": True,
+        "persistAuthorization": False,
+    },
 )
 
 

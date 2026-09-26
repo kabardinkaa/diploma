@@ -3,13 +3,17 @@ from fastapi import APIRouter, Depends
 from app.core.config import Settings, get_settings
 from app.schemas.models import ModelInfo
 
-router = APIRouter(tags=["models"])
+router = APIRouter(tags=["Models"])
 
 
 @router.get(
     "/models",
     response_model=list[ModelInfo],
     summary="Список доступных моделей",
+    description=(
+        "Returns the server-configured chat, RAG, and agent model identifiers. "
+        "Clients cannot select an arbitrary production model through this endpoint."
+    ),
     responses={
         200: {"description": "Список моделей успешно получен"},
     },

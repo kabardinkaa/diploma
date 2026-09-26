@@ -52,7 +52,7 @@ class ChatRequest(BaseModel):
                         }
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 500,
+                    "max_tokens": 256,
                     "user_id": "employee-123",
                     "session_id": "session-001",
                 },
@@ -67,9 +67,8 @@ class ChatRequest(BaseModel):
                             "content": "Кратко объясни, что делать, если не работает корпоративная почта.",
                         },
                     ],
-                    "model": "openai/gpt-5.4-mini",
                     "temperature": 0,
-                    "max_tokens": 300,
+                    "max_tokens": 256,
                 },
             ]
         }
@@ -82,7 +81,11 @@ class ChatRequest(BaseModel):
     )
     model: str | None = Field(
         default=None,
-        description="Модель. Если не указана, берётся default_model из настроек",
+        description=(
+            "Deprecated compatibility field. The server always uses its configured "
+            "model; a client value does not change model selection."
+        ),
+        json_schema_extra={"deprecated": True},
     )
     temperature: float = Field(
         default=0.2,
@@ -94,7 +97,15 @@ class ChatRequest(BaseModel):
         default=500,
         ge=1,
         le=16000,
-        description="Максимальное число токенов ответа",
+        description=(
+            "Deprecated compatibility hint. The server replaces it with the "
+            "configured `CHAT_MAX_TOKENS` limit (256 by default)."
+        ),
+        json_schema_extra={
+            "deprecated": True,
+            "default": 256,
+            "maximum": 4096,
+        },
     )
     user_id: str | None = Field(
         default=None,
@@ -107,6 +118,22 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "content": "Для подключения откройте корпоративный VPN-клиент.",
+                "model": "openai/gpt-5.4-mini",
+                "usage": {
+                    "prompt_tokens": 42,
+                    "completion_tokens": 18,
+                    "total_tokens": 60,
+                },
+                "finish_reason": "stop",
+                "cached": False,
+            }
+        }
+    )
+
     content: str
     model: str
     usage: Usage | None = None

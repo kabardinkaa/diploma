@@ -11,6 +11,7 @@ from app.core.sse import sse_error_events
 from app.deps.providers import SettingsDep
 from app.deps.providers import LLMServiceDep
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Message
+from app.schemas.openapi import ErrorResponse, error_response, http_error_response, sse_response
 from app.security.public_budget import (
     PublicGenerationBudget,
     get_public_generation_budget,
@@ -18,7 +19,7 @@ from app.security.public_budget import (
 from typing import Annotated
 from fastapi import Depends
 
-router = APIRouter(tags=["chat"])
+router = APIRouter()
 PublicBudgetDep = Annotated[
     PublicGenerationBudget,
     Depends(get_public_generation_budget),
@@ -34,6 +35,15 @@ class BatchChatRequest(BaseModel):
     )
 
 
+class BatchChatResponse(BaseModel):
+    results: list[ChatResponse | ErrorResponse] = Field(
+        description=(
+            "One result per request. Provider failures are represented as safe "
+            "per-item error objects while the batch response remains HTTP 200."
+        )
+    )
+
+
 def _apply_server_limits(request: ChatRequest, settings: SettingsDep) -> ChatRequest:
     return request.model_copy(
         update={
@@ -45,14 +55,56 @@ def _apply_server_limits(request: ChatRequest, settings: SettingsDep) -> ChatReq
 
 @router.post(
     "/chat",
+    tags=["Chat"],
     response_model=ChatResponse,
     summary="Получить полный ответ LLM",
+    description=(
+        "Public bounded chat completion. The deployment selects the model and "
+        "replaces the compatibility `max_tokens` value with `CHAT_MAX_TOKENS`. "
+        "JSON is recommended; a plain-text body remains supported for backward "
+        "compatibility. This operation consumes public generation budget."
+    ),
     responses={
         200: {"description": "Ответ успешно получен"},
-        422: {"description": "Ошибка валидации запроса"},
-        429: {"description": "Превышен лимит запросов к LLM"},
-        502: {"description": "Ошибка LLM-провайдера"},
-        504: {"description": "Таймаут LLM-провайдера"},
+        422: error_response(
+            "Request validation failed",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+        429: error_response(
+            "Public quota, request-rate, or concurrency limit reached",
+            code="public_quota_exhausted",
+            message="Public demo generation quota is exhausted",
+        ),
+        502: error_response(
+            "LLM provider unavailable or rejected authentication",
+            code="llm_auth",
+            message="Ошибка авторизации у LLM-провайдера",
+        ),
+        503: error_response(
+            "Public generation is disabled",
+            code="public_generation_disabled",
+            message="Public demo generation is disabled",
+        ),
+        504: error_response(
+            "LLM provider timeout",
+            code="llm_timeout",
+            message="LLM-провайдер не ответил за отведённое время",
+        ),
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ChatRequest"}
+                },
+                "text/plain": {
+                    "schema": {"type": "string", "maxLength": 4000},
+                    "example": "Как подключиться к корпоративному VPN?",
+                },
+            },
+        }
     },
 )
 async def chat(
@@ -88,13 +140,30 @@ async def chat(
 
 @router.post(
     "/chat/stream",
+    tags=["Chat"],
+    response_class=StreamingResponse,
     summary="Получить потоковый ответ LLM через SSE",
+    description=(
+        "Public `text/event-stream` chat. Data frames contain token text or usage "
+        "JSON and the successful stream ends with `data: [DONE]`. If an error "
+        "occurs after streaming starts, the endpoint emits safe `error` and `done` "
+        "events without raw provider details. Server-selected model and token cap apply."
+    ),
     responses={
-        200: {"description": "Потоковый ответ успешно начат"},
-        422: {"description": "Ошибка валидации запроса"},
-        429: {"description": "Превышен лимит запросов к LLM"},
-        502: {"description": "Ошибка LLM-провайдера"},
-        504: {"description": "Таймаут LLM-провайдера"},
+        200: sse_response(
+            "SSE token stream; provider errors after start are safe SSE events",
+            "data: Для подключения\n\ndata: откройте VPN-клиент\n\ndata: [DONE]\n\n",
+        ),
+        422: error_response(
+            "Request validation failed before streaming",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
+        429: error_response(
+            "Request-rate or concurrency limit reached before streaming",
+            code="rate_limit_exceeded",
+            message="Too many expensive requests. Try again later.",
+        ),
     },
 )
 async def chat_stream(
@@ -133,13 +202,25 @@ async def chat_stream(
 
 @router.post(
     "/chat/batch",
+    tags=["Admin"],
+    response_model=BatchChatResponse,
     summary="Выполнить несколько LLM-запросов",
+    description=(
+        "Administrative batch generation protected by `X-Admin-Token`. Model and "
+        "token limits remain server-controlled for every item. Individual provider "
+        "failures are returned as safe error objects in the `results` array."
+    ),
     responses={
         200: {"description": "Batch-запрос обработан"},
-        422: {"description": "Ошибка валидации запроса"},
-        429: {"description": "Превышен лимит запросов к LLM"},
-        502: {"description": "Ошибка LLM-провайдера"},
-        504: {"description": "Таймаут LLM-провайдера"},
+        403: http_error_response(
+            "Missing or invalid admin token",
+            detail="Admin token required",
+        ),
+        422: error_response(
+            "Request validation failed",
+            code="validation_error",
+            message="Ошибка валидации запроса",
+        ),
     },
 )
 async def chat_batch(

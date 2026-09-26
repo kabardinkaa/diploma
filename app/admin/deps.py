@@ -1,10 +1,25 @@
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, HTTPException, Security
+from fastapi.security import APIKeyHeader
 
 from app.chat.deps import ChatRepositoryDep, SettingsDep
 from app.chat.repository import ChatRepository
 from app.security.tokens import secret_matches
+
+
+admin_token_header = APIKeyHeader(
+    name="X-Admin-Token",
+    scheme_name="AdminToken",
+    description="Operator token for administrative and approved write operations.",
+    auto_error=False,
+)
+internal_token_header = APIKeyHeader(
+    name="X-Internal-Token",
+    scheme_name="InternalToken",
+    description="Service-to-service token used by trusted internal clients.",
+    auto_error=False,
+)
 
 
 def _forbidden(message: str) -> HTTPException:
@@ -13,7 +28,7 @@ def _forbidden(message: str) -> HTTPException:
 
 async def require_admin(
     settings: SettingsDep,
-    x_admin_token: Annotated[str | None, Header(alias="X-Admin-Token")] = None,
+    x_admin_token: Annotated[str | None, Security(admin_token_header)] = None,
 ) -> None:
     if not x_admin_token:
         raise _forbidden("Admin token required")
@@ -23,7 +38,7 @@ async def require_admin(
 
 async def require_internal(
     settings: SettingsDep,
-    x_internal_token: Annotated[str | None, Header(alias="X-Internal-Token")] = None,
+    x_internal_token: Annotated[str | None, Security(internal_token_header)] = None,
 ) -> None:
     if not x_internal_token:
         raise _forbidden("Internal token required")
@@ -33,7 +48,7 @@ async def require_internal(
 
 async def require_internal_in_public(
     settings: SettingsDep,
-    x_internal_token: Annotated[str | None, Header(alias="X-Internal-Token")] = None,
+    x_internal_token: Annotated[str | None, Security(internal_token_header)] = None,
 ) -> None:
     if settings.environment.lower() not in {"prod", "production", "public"}:
         return
