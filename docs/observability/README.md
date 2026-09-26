@@ -1,29 +1,27 @@
 # Observability
 
-## Phoenix trace
+## Runtime contract
 
-Файл `phoenix-trace.png` содержит пример успешного трейса LLM-запроса в Phoenix.
+App emits structured logs with request ID, method/path, status and latency. LLM completion logs include model, token counts when available, finish reason, latency and a prompt hash.
 
-На скриншоте видно:
-- проект `diploma-fastapi`;
-- span `ChatCompletion`;
-- статус `OK`;
-- latency LLM-вызова;
-- модель, использованную для ответа;
-- входные и выходные данные LLM-запроса.
+Phoenix receives OpenTelemetry/OpenInference traces for OpenAI-compatible and LlamaIndex operations when `RAG_TRACING_ENABLED=true`. Tracing initialization is optional: missing collector/tracing extras do not change API behavior.
 
-## JSON log
+## Production privacy
 
-Файл `json-log.png` содержит пример JSON-лога события `llm_request_completed`.
+Production validation requires:
 
-В логе видно:
-- `request_id`;
-- `model`;
-- `input_tokens`;
-- `output_tokens`;
-- `latency_ms`;
-- `finish_reason`;
-- `prompt_hash`;
-- `prompt_preview`.
+```env
+RAG_TRACING_ENABLED=false
+TRACING_CAPTURE_CONTENT=false
+LOG_PROMPT_PREVIEW_ENABLED=false
+```
 
-Сырые PII в JSON-логи не сохраняются: для prompt используется `prompt_hash`, а короткое превью проходит через `redact_pii`.
+Tracing is therefore disabled by default. If an operator deliberately enables it while keeping `TRACING_CAPTURE_CONTENT=false`, OpenInference hides inputs, outputs, messages, images/text, prompts, choices, embedding text and vectors.
+
+Logs never include provider/admin/internal/session secrets. Prompt preview is disabled in public mode; only non-reversible prompt hash and operational metadata remain.
+
+Phoenix's persistent volume does not have automatic age-based pruning in this project. Operators who enable tracing must define separate retention for historical Phoenix data; ordinary restarts must not delete the volume.
+
+## Evidence screenshots
+
+[phoenix-trace.png](phoenix-trace.png) and [json-log.png](json-log.png) are historical development screenshots from a content-visible local configuration. They demonstrate instrumentation and structured logging, not production privacy defaults.

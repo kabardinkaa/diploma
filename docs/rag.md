@@ -28,8 +28,9 @@ flowchart LR
 
 `RAGService.build()` только подключает `QdrantVectorStore` к существующей
 collection и создаёт retriever. Он не читает `data/`, не строит embeddings и
-не запускает ingestion. Пустая или ещё не созданная collection даёт безопасный
-fallback при запросе.
+не запускает ingestion. Отсутствие `corporate_rag` делает readiness неуспешным;
+пустой результат поиска остаётся штатным low-confidence сценарием, а
+network/auth/timeout/server ошибки Qdrant возвращают structured `503`.
 
 ## Corpus
 
@@ -156,10 +157,9 @@ docstore, не затрагивая коллекции прошлых работ
 
 ```powershell
 python scripts/build_corporate_corpus.py
-python scripts/ingest.py data/
-python scripts/ingest.py data/
-python scripts/ingest.py data/ --mode full
-docker compose --profile tools run --rm ingest
+python -m scripts.ingest data/ --mode incremental
+python -m scripts.ingest data/ --mode full
+docker compose run --rm ingest
 python -m uvicorn app.main:app --reload --port 8000
 pytest -q
 python -m compileall app bot scripts
@@ -174,7 +174,7 @@ docker compose up -d --build
 
 | Check | Actual result |
 | --- | --- |
-| First `python scripts/ingest.py data/` | 73 changed, 0 unchanged, 0 failed, 73 nodes, 73 points, 12.0 s |
+| First `python -m scripts.ingest data/` | 73 changed, 0 unchanged, 0 failed, 73 nodes, 73 points, 12.0 s |
 | Identical second ingest | 0 changed, 73 unchanged, 0 failed, 0 nodes, 73 points, 0.05 s |
 | Isolated changed-file check | exactly 1 changed, points `1 -> 1`, smoke collection removed |
 | In-base `/rag/query` | VPN, score 0.861, confident true, 5 sources, citations `[1]`-`[4]` |
@@ -183,11 +183,12 @@ docker compose up -d --build
 | Chat SSE | 101 token events, then sources, then done with `message_id` |
 | Postgres message | 5 shown sources and selected `prompt_id` persisted |
 | Upload | HTTP 202; unique PDF was searchable after a 12-second wait and appeared as source `[1]` with score 0.849 |
-| Docker | app/Postgres/Redis/Qdrant healthy; Phoenix and Telegram bot running |
+| Docker | app/Postgres/Qdrant healthy; Phoenix and Telegram bot running |
 
-Telegram token is valid and aiogram polling started. An interactive user message and
-feedback-button click were not performed because no dedicated test recipient was
-available; this path is covered by fake-bot tests. The local host port 8000 was
+В том зафиксированном прогоне aiogram polling успешно запустился. Реальные
+Telegram credentials не фиксируются в документации; interactive user message и
+feedback-button click не выполнялись без выделенного test recipient. Этот path
+покрыт fake-bot тестами. The local host port 8000 was
 already occupied by another project, so live HTTP checks ran inside the compose
 network; the app container healthcheck uses its own port 8000 and passed.
 

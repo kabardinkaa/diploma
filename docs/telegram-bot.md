@@ -1,178 +1,68 @@
-# Telegram-бот как тонкий клиент
+# Telegram bot
 
-## Что реализовано
+Telegram bot — тонкий aiogram-клиент production backend. Исторический отчёт ранней реализации сохранён в [archive/telegram-bot-course-report.md](archive/telegram-bot-course-report.md).
 
-В проект добавлен Telegram-бот на aiogram 3.
+## Architecture
 
-Бот работает как тонкий клиент к backend chat-сервису из Б4.1:
+```text
+Telegram user
+  -> aiogram handlers
+  -> BackendClient
+  -> internal /chats API
+  -> ChatService
+  -> RAG / LLM / PostgreSQL
+```
 
-- не знает про LLM;
-- не хранит историю локально;
-- создаёт чат через backend;
-- отправляет сообщения в backend;
-- получает ответ через SSE;
-- очищает историю через backend;
-- поддерживает FSM-сценарий `/ask`.
+Bot не создаёт отдельный LLM/RAG stack и не хранит полную историю. Backend отвечает за persistence, retrieval, moderation, generation и sources.
 
-## Архитектура
+## Startup
 
-Пользователь пишет в Telegram-бота.  
-Бот обрабатывает сообщение через aiogram handlers.  
-Handlers используют `BackendClient`.  
-`BackendClient` вызывает backend:
+`BOT_TOKEN` опционален. Если token пуст или равен placeholder, процесс пишет безопасное предупреждение и завершается без restart loop. При реальном token:
 
-- `POST /chats`
-- `POST /chats/{chat_id}/messages`
-- `DELETE /chats/{chat_id}/messages`
+```powershell
+python -m bot
+```
 
-Backend хранит историю, собирает контекст и обращается к LLM.
+В Compose `BACKEND_URL=http://app:8000`. В public mode bot и app должны иметь одинаковый реальный `INTERNAL_TOKEN`. Broadcast worker запускается только с настроенным internal token; без него bot продолжает основные функции без повторяющихся 403.
 
-## Структура
+## User features
 
-bot/
-  __main__.py
-  config.py
-  states.py
-  handlers/
-    commands.py
-    fsm.py
-    text.py
-  keyboards/
-    inline.py
-  services/
-    backend_client.py
+- `/start`, `/help`, `/ask`, `/clear`, `/cancel` и `/operator`.
+- Обычный text chat через backend SSE.
+- Photo, voice, audio, PDF и DOCX с отдельными server-side size/type limits.
+- RAG sources, confidence metadata и feedback buttons.
+- Handoff к оператору.
+- Per-user short-window и daily quota.
+- Bounded TTL mappings между Telegram user/chat и backend chat.
 
-## Настройки
+Admin IDs из `BOT_ADMIN_IDS` дополнительно получают `/stats`, `/users` и `/broadcast`.
 
-Настройки бота описаны в `bot/config.py`.
+## Backend contract
 
-Используются переменные окружения:
+Основные вызовы:
 
-BOT_TOKEN=
-BACKEND_URL=http://127.0.0.1:8000
-BOT_ADMIN_IDS=[]
+- `POST /chats` — создать backend chat;
+- `POST /chats/{chat_id}/messages` — text/media SSE;
+- `DELETE /chats/{chat_id}/messages` — очистить историю;
+- `POST /chats/{chat_id}/messages/{message_id}/feedback`;
+- `POST /chats/{chat_id}/handoff`;
+- `/chats/admin/internal/*` — polling/result broadcast worker.
 
-`BOT_TOKEN` хранится только в `.env`.
+Во внешнем public deployment эти endpoints не являются публичным клиентским API и требуют `X-Internal-Token`. Admin endpoints используют отдельный `X-Admin-Token`.
 
-Файл `.env` не коммитится в Git.
+## Limits and privacy
 
-## BackendClient
+| Setting | Purpose |
+| --- | --- |
+| `BOT_RATE_LIMIT_REQUESTS` / `BOT_RATE_LIMIT_WINDOW_SECONDS` | Per-user burst limit |
+| `BOT_DAILY_QUOTA` | Per-user daily generation quota |
+| `BOT_QUOTA_MAX_USERS` / `BOT_QUOTA_STATE_TTL_SECONDS` | Bound quota state |
+| `BOT_CHAT_CACHE_MAX_ENTRIES` / `BOT_CHAT_CACHE_TTL_SECONDS` | Bound chat mappings |
+| `BOT_PHOTO_MAX_BYTES` | Photo download limit |
+| `BOT_MEDIA_MAX_BYTES` | Document/voice/audio download limit |
 
-`BackendClient` находится в `bot/services/backend_client.py`.
+Telegram end-user generation также расходует общий backend `PUBLIC_GENERATION_BUDGET_REQUESTS`. Token и internal/admin credentials не включаются в user-facing errors или logs.
 
-Он реализует методы:
+## Verification
 
-- `get_or_create_chat(owner_external_id, interface)`
-- `send_message(chat_id, content)`
-- `clear_messages(chat_id)`
-
-`get_or_create_chat` создаёт чат в backend через `POST /chats`.
-
-`send_message` отправляет сообщение через `POST /chats/{chat_id}/messages` и парсит SSE-ответ.
-
-`clear_messages` очищает историю через `DELETE /chats/{chat_id}/messages`.
-
-## Команды
-
-Реализованы команды:
-
-- `/start` — создаёт чат в backend и показывает приветствие;
-- `/help` — показывает список команд;
-- `/clear` — очищает историю через backend;
-- `/cancel` — сбрасывает активный FSM-сценарий.
-
-## Текстовый handler
-
-Обычные текстовые сообщения отправляются в backend.
-
-Бот не хранит историю локально. Повторный вопрос работает за счёт backend-истории.
-
-Проверка:
-
-Пользователь: Привет, меня зовут Диана  
-Бот: Привет, Диана! Как я могу вам помочь?
-
-Пользователь: Как меня зовут?  
-Бот: Диана.
-
-## FSM-сценарий /ask
-
-Реализован сценарий `/ask`.
-
-Сценарий:
-
-1. Пользователь пишет `/ask`.
-2. Бот показывает inline-клавиатуру с темами.
-3. Пользователь выбирает тему.
-4. FSM сохраняет тему и переходит в состояние `waiting_for_question`.
-5. Пользователь пишет вопрос.
-6. Бот собирает prompt вида: `Тема: <topic>. Вопрос: <text>`.
-7. Prompt отправляется в backend как обычное сообщение.
-8. Ответ приходит стримом.
-9. FSM очищается.
-
-Темы выбраны из домена дипломного проекта:
-
-- Доступы
-- Рабочее место
-- Корпоративное ПО
-- Ошибки и сбои
-- Эскалации
-
-## Запуск
-
-Сначала запускается backend:
-
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
-
-Потом запускается бот:
-
-.\.venv\Scripts\python.exe -m bot
-
-## Проверка
-
-Проверены сценарии:
-
-- `/start`
-- `/help`
-- обычное текстовое сообщение
-- память через backend
-- `/ask`
-- `/cancel`
-- `/clear`
-
-После `/clear` бот больше не использует старый контекст.
-
-## Тесты
-
-Добавлены тесты:
-
-- `tests/bot/test_backend_client.py`
-- `tests/bot/test_fsm.py`
-
-Проверяется:
-
-- `get_or_create_chat` возвращает UUID и использует cache;
-- `send_message` корректно парсит SSE;
-- `send_message` сохраняет пробелы и multiline-чанки;
-- `clear_messages` отправляет DELETE;
-- FSM `/ask` после выбора темы переходит в `waiting_for_question`;
-- отмена темы очищает state.
-
-Результат проверки:
-
-- `tests/bot`: 6 passed
-- общий прогон: 25 passed
-
-## Результат
-
-Telegram-бот реализован как тонкий клиент к backend chat-сервису:
-
-- backend хранит историю;
-- бот не знает про LLM;
-- бот не хранит историю локально;
-- обычные сообщения уходят в backend;
-- ответы приходят через SSE;
-- `/clear` чистит историю через backend;
-- `/ask` реализован через FSM;
-- тесты проходят.
+Bot client, FSM, media limits, lifecycle, auth/error mapping и production handlers покрыты в `tests/bot/`. Полный актуальный test count приводится только в корневом README; исторические counts находятся в архивном отчёте.

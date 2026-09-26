@@ -1,5 +1,9 @@
 # Vector Store - Qdrant
 
+> Historical evaluation evidence for an earlier course block. Collections
+> `documents` and `documents_*` below are experimental; the current production
+> collection is `corporate_rag` and is documented in [`rag.md`](rag.md).
+
 ## Почему Qdrant
 
 Qdrant выбран как self-hosted слой retrieval: он использует HNSW, поддерживает
@@ -12,7 +16,7 @@ Qdrant выбран как self-hosted слой retrieval: он использу
 |---|---|
 | Embedding model | `intfloat/multilingual-e5-base` |
 | Dimension | 768 |
-| Production collection | `documents` |
+| Course-block collection | `documents` |
 | Distance | `COSINE` |
 | Client | `AsyncQdrantClient` |
 | Qdrant server | `v1.18.0` |

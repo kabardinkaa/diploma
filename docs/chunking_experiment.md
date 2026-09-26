@@ -1,5 +1,9 @@
 # Chunking & Retrieval Optimization
 
+> Evaluation evidence. References to `rag_block_03` and isolated experiment
+> collections describe the measured course run, not the current production
+> collection. The deployed contract is [`corporate_rag`](rag.md).
+
 ## Corpus
 
 Эксперимент использует неизмененный учебный корпус Б5.3:
@@ -197,9 +201,11 @@ limit и не меняет существующий `/rag/query` автомат�
 переиндексации соответствующей vector collection. Нельзя подключать новую
 конфигурацию к старым points и считать результаты сопоставимыми.
 
-Экспериментальные `docs_*` не назначаются production collections. Если
-production RAG перейдет на измеренную recursive factory, `rag_block_03` нужно
-явно переиндексировать, а не молча переиспользовать.
+Экспериментальные `docs_*` не назначались production collections. На момент
+эксперимента для production RAG рекомендовалась измеренная recursive factory:
+целевую collection требовалось явно переиндексировать, а не молча переиспользовать
+старые points. Текущий runtime уже использует `corporate_rag`; его фактический
+контракт описан в [rag.md](rag.md).
 
 ## Raw results
 
