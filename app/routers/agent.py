@@ -13,13 +13,24 @@ from app.schemas.agent import AgentMessage, AgentStreamRequest
 from app.core.sse import sse_error_events
 from app.deps.providers import SettingsDep
 from app.security.tokens import secret_matches
+from app.security.public_budget import (
+    PublicGenerationBudget,
+    get_public_generation_budget,
+)
+from typing import Annotated
+from fastapi import Depends
 from app.security.identity import (
     public_session_cookie_options,
     resolve_public_agent_identity,
 )
+from app.services.retention import protect_retained_state
 
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+PublicBudgetDep = Annotated[
+    PublicGenerationBudget,
+    Depends(get_public_generation_budget),
+]
 
 
 def _message_from_request(message: AgentMessage) -> Any:
@@ -76,6 +87,7 @@ async def _events(
     *,
     effective_thread_id: str,
     user_role: str,
+    budget: PublicGenerationBudget,
 ) -> AsyncIterator[str]:
     graph = request.app.state.persistent_agent
     config = {
@@ -97,16 +109,25 @@ async def _events(
         }
 
     try:
-        async for mode, event in graph.astream(
-            graph_input,
-            config=config,
-            stream_mode=["updates", "messages"],
-        ):
-            event_type = "message" if mode == "messages" else "update"
-            if mode == "updates" and isinstance(event, dict) and "__interrupt__" in event:
-                event_type = "interrupt"
-            yield _sse({"type": event_type, "mode": mode, "data": _jsonable(event)})
-        yield _sse({"type": "done", "thread_id": payload.thread_id})
+        if user_role == "read-only":
+            await budget.consume()
+        async with protect_retained_state(request, f"agent:{effective_thread_id}"):
+            async for mode, event in graph.astream(
+                graph_input,
+                config=config,
+                stream_mode=["updates", "messages"],
+            ):
+                event_type = "message" if mode == "messages" else "update"
+                if (
+                    mode == "updates"
+                    and isinstance(event, dict)
+                    and "__interrupt__" in event
+                ):
+                    event_type = "interrupt"
+                yield _sse(
+                    {"type": event_type, "mode": mode, "data": _jsonable(event)}
+                )
+            yield _sse({"type": "done", "thread_id": payload.thread_id})
     except Exception as exc:
         for event in sse_error_events(exc):
             yield event
@@ -117,6 +138,7 @@ async def agent_stream(
     payload: AgentStreamRequest,
     request: Request,
     settings: SettingsDep,
+    budget: PublicBudgetDep,
     x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
 ) -> StreamingResponse:
     effective_thread_id, user_role, session_cookie = _agent_context(
@@ -131,6 +153,7 @@ async def agent_stream(
             payload,
             effective_thread_id=effective_thread_id,
             user_role=user_role,
+            budget=budget,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

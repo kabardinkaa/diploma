@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -12,7 +12,9 @@ from app.admin.deps import require_internal_in_public
 from app.core.sse import sse_error_events
 from app.core.config import get_settings
 from app.core.uploads import normalize_safe_filename
+from app.security.public_budget import get_public_generation_budget
 from app.services.rag import sanitize_sse_payload
+from app.services.retention import protect_retained_state
 
 
 router = APIRouter(
@@ -89,10 +91,12 @@ async def list_messages(
 @router.post("/{chat_id}/messages")
 async def send_message(
     chat_id: UUID,
+    request: Request,
     service: ChatServiceDep,
     content: str = Form(..., min_length=1),
     media: UploadFile | None = File(None),
 ) -> StreamingResponse:
+    budget = get_public_generation_budget(request)
     media_refs = None
 
     if media is not None:
@@ -111,6 +115,7 @@ async def send_message(
         }
 
     try:
+        await budget.consume()
         await service.check_user_content(content)
     except ModerationBlockedError as exc:
         raise HTTPException(
@@ -125,48 +130,49 @@ async def send_message(
 
     async def event_generator():
         try:
-            async for chunk in service.send_message(
-                chat_id=chat_id,
-                user_content=content,
-                media_refs=media_refs,
-            ):
-                payload = {
-                    "type": "token",
-                    "delta": chunk,
+            async with protect_retained_state(request, f"chat:{chat_id}"):
+                async for chunk in service.send_message(
+                    chat_id=chat_id,
+                    user_content=content,
+                    media_refs=media_refs,
+                ):
+                    payload = {
+                        "type": "token",
+                        "delta": chunk,
+                    }
+
+                    yield (
+                        "data: "
+                        + sanitize_sse_payload(payload)
+                        + "\n\n"
+                    )
+
+                sources_payload = {
+                    "type": "sources",
+                    "sources": service.last_sources,
+                    **service.last_rag_meta,
+                }
+                yield (
+                    "event: sources\n"
+                    "data: "
+                    + sanitize_sse_payload(sources_payload)
+                    + "\n\n"
+                )
+
+                done_payload = {
+                    "type": "done",
+                    "message_id": (
+                        str(service.last_assistant_message_id)
+                        if service.last_assistant_message_id
+                        else None
+                    ),
                 }
 
                 yield (
                     "data: "
-                    + sanitize_sse_payload(payload)
+                    + sanitize_sse_payload(done_payload)
                     + "\n\n"
                 )
-
-            sources_payload = {
-                "type": "sources",
-                "sources": service.last_sources,
-                **service.last_rag_meta,
-            }
-            yield (
-                "event: sources\n"
-                "data: "
-                + sanitize_sse_payload(sources_payload)
-                + "\n\n"
-            )
-
-            done_payload = {
-                "type": "done",
-                "message_id": (
-                    str(service.last_assistant_message_id)
-                    if service.last_assistant_message_id
-                    else None
-                ),
-            }
-
-            yield (
-                "data: "
-                + sanitize_sse_payload(done_payload)
-                + "\n\n"
-            )
 
         except Exception as exc:
             for event in sse_error_events(exc):

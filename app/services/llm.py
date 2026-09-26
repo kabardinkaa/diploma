@@ -93,7 +93,11 @@ class LLMService:
                 latency_ms=round((time.perf_counter() - started_at) * 1000, 2),
                 finish_reason="cache_hit",
                 prompt_hash=prompt_hash(raw_prompt),
-                prompt_preview=redact_pii(raw_prompt)[:120],
+                prompt_preview=(
+                    redact_pii(raw_prompt)[:120]
+                    if getattr(self.settings, "log_prompt_preview_enabled", True)
+                    else None
+                ),
                 cached=True,
             )
 
@@ -121,7 +125,11 @@ class LLMService:
                 latency_ms=round((time.perf_counter() - started_at) * 1000, 2),
                 finish_reason=getattr(choice, "finish_reason", None) if choice else None,
                 prompt_hash=prompt_hash(raw_prompt),
-                prompt_preview=redact_pii(raw_prompt)[:120],
+                prompt_preview=(
+                    redact_pii(raw_prompt)[:120]
+                    if getattr(self.settings, "log_prompt_preview_enabled", True)
+                    else None
+                ),
                 cached=False,
             )
 

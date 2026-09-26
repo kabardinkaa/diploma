@@ -4,15 +4,20 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterator, MutableMapping
 from dataclasses import dataclass
+from typing import Generic, TypeVar
+
+
+K = TypeVar("K")
+V = TypeVar("V")
 
 
 @dataclass(frozen=True)
-class _CacheEntry:
-    value: str
+class _CacheEntry(Generic[V]):
+    value: V
     expires_at: float
 
 
-class BoundedTTLCache(MutableMapping[str, str]):
+class BoundedTTLCache(MutableMapping[K, V], Generic[K, V]):
     """Small process-local LRU cache with TTL and deterministic eviction."""
 
     def __init__(
@@ -27,9 +32,9 @@ class BoundedTTLCache(MutableMapping[str, str]):
         self.ttl_seconds = ttl_seconds
         self.enabled = enabled
         self._clock = clock
-        self._entries: OrderedDict[str, _CacheEntry] = OrderedDict()
+        self._entries: OrderedDict[K, _CacheEntry[V]] = OrderedDict()
 
-    def __getitem__(self, key: str) -> str:
+    def __getitem__(self, key: K) -> V:
         if not self.enabled:
             raise KeyError(key)
         entry = self._entries[key]
@@ -39,7 +44,7 @@ class BoundedTTLCache(MutableMapping[str, str]):
         self._entries.move_to_end(key)
         return entry.value
 
-    def __setitem__(self, key: str, value: str) -> None:
+    def __setitem__(self, key: K, value: V) -> None:
         if not self.enabled:
             return
         self._entries[key] = _CacheEntry(
@@ -50,10 +55,10 @@ class BoundedTTLCache(MutableMapping[str, str]):
         while len(self._entries) > self.max_entries:
             self._entries.popitem(last=False)
 
-    def __delitem__(self, key: str) -> None:
+    def __delitem__(self, key: K) -> None:
         del self._entries[key]
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self) -> Iterator[K]:
         self._purge_expired()
         return iter(self._entries)
 
@@ -61,7 +66,7 @@ class BoundedTTLCache(MutableMapping[str, str]):
         self._purge_expired()
         return len(self._entries)
 
-    def get(self, key: str, default: str | None = None) -> str | None:
+    def get(self, key: K, default: V | None = None) -> V | None:
         try:
             return self[key]
         except KeyError:

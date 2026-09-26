@@ -4,6 +4,7 @@ from uuid import UUID
 
 import httpx
 
+from app.core.cache import BoundedTTLCache
 from bot.services.quota import BotUserQuota
 
 
@@ -17,14 +18,22 @@ class BackendClient:
         admin_token: str = "",
         internal_token: str = "",
         user_quota: BotUserQuota | None = None,
+        chat_cache_max_entries: int = 1000,
+        chat_cache_ttl_seconds: float = 24 * 60 * 60,
     ) -> None:
         self.http_client = http_client
         self.base_url = base_url.rstrip("/")
         self.admin_token = admin_token
         self.internal_token = internal_token
         self.user_quota = user_quota
-        self._chat_cache: dict[tuple[str, str], UUID] = {}
-        self._chat_owners: dict[UUID, str] = {}
+        self._chat_cache = BoundedTTLCache[tuple[str, str], UUID](
+            max_entries=chat_cache_max_entries,
+            ttl_seconds=chat_cache_ttl_seconds,
+        )
+        self._chat_owners = BoundedTTLCache[UUID, str](
+            max_entries=chat_cache_max_entries,
+            ttl_seconds=chat_cache_ttl_seconds,
+        )
         self.last_message_id: UUID | None = None
         self.last_sources: list[dict] = []
         self.last_rag_meta: dict = {}

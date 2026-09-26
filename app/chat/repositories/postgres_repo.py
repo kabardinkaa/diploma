@@ -507,3 +507,47 @@ class PostgresChatRepository:
             ]
 
         return await self._run(op)
+
+    async def cleanup_expired(
+        self,
+        *,
+        before: datetime,
+        protected_chat_ids: set[str],
+    ) -> int:
+        protected = [UUID(value) for value in protected_chat_ids]
+
+        async def op(conn):
+            async with conn.transaction():
+                deleted = 0
+                for table in ("feedback", "chat_messages"):
+                    result = await conn.execute(
+                        f"""
+                        DELETE FROM {table}
+                        WHERE created_at < $1
+                          AND NOT (chat_id = ANY($2::uuid[]))
+                        """,
+                        before,
+                        protected,
+                    )
+                    deleted += int(result.rsplit(" ", 1)[-1])
+                result = await conn.execute(
+                    """
+                    DELETE FROM chats c
+                    WHERE c.created_at < $1
+                      AND NOT (c.id = ANY($2::uuid[]))
+                      AND NOT EXISTS (
+                        SELECT 1 FROM chat_messages m WHERE m.chat_id = c.id
+                      )
+                    """,
+                    before,
+                    protected,
+                )
+                deleted += int(result.rsplit(" ", 1)[-1])
+                result = await conn.execute(
+                    "DELETE FROM broadcast_tasks WHERE created_at < $1",
+                    before,
+                )
+                deleted += int(result.rsplit(" ", 1)[-1])
+                return deleted
+
+        return await self._run(op)

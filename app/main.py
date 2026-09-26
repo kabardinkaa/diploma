@@ -31,6 +31,7 @@ from app.core.exceptions import (
     LLMError,
     LLMRateLimitError,
     LLMTimeoutError,
+    PublicGenerationControlError,
     SafeInputError,
 )
 from app.admin.routes import router as admin_router
@@ -44,7 +45,9 @@ from app.chat.repositories.postgres_repo import (
 from app.services.rag import RAGService
 from app.services.agent_persistent import agent_lifespan
 from app.services.readiness import ReadinessService
+from app.services.retention import RetentionManager
 from app.security.rate_limit import PublicRateLimitMiddleware
+from app.security.public_budget import PublicGenerationBudget
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = structlog.get_logger("llm-service")
@@ -69,7 +72,10 @@ class SafeJSONResponse(JSONResponse):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    setup_tracing(enabled=settings.rag_tracing_enabled)
+    setup_tracing(
+        enabled=settings.rag_tracing_enabled,
+        capture_content=settings.tracing_capture_content,
+    )
 
     client_kwargs = {
         "api_key": settings.llm.api_key.get_secret_value(),
@@ -83,12 +89,18 @@ async def lifespan(app: FastAPI):
     openai_client = AsyncOpenAI(**client_kwargs)
     postgres_pool = None
     rag_service = None
+    retention_manager = None
     try:
         app.state.openai = openai_client
         app.state.cache = BoundedTTLCache(
             max_entries=settings.llm_cache_max_entries,
             ttl_seconds=settings.llm_cache_ttl_seconds,
             enabled=settings.llm_cache_enabled,
+        )
+        app.state.public_generation_budget = PublicGenerationBudget(
+            enabled=settings.public_generation_enabled,
+            requests=settings.public_generation_budget_requests,
+            window_seconds=settings.public_generation_budget_window_seconds,
         )
 
         if settings.chat_repository == "postgres":
@@ -101,6 +113,13 @@ async def lifespan(app: FastAPI):
             )
         app.state.db_pool = postgres_pool
         app.state.chat_repository = chat_repository
+        retention_manager = RetentionManager(
+            repository=chat_repository,
+            postgres_pool=postgres_pool,
+            retention_days=settings.public_data_retention_days,
+            cleanup_interval_seconds=settings.retention_cleanup_interval_seconds,
+        )
+        app.state.retention_manager = retention_manager
 
         rag_service = RAGService(settings, openai_client=openai_client)
         app.state.rag_service = rag_service
@@ -116,9 +135,20 @@ async def lifespan(app: FastAPI):
         ) as persistent_agent:
             app.state.persistent_agent = persistent_agent
             await app.state.rag_service.build()
+            retention_manager.start()
             logger.info("Application startup complete")
             yield
     finally:
+        if retention_manager is not None:
+            try:
+                async with asyncio.timeout(10):
+                    await retention_manager.close()
+            except Exception as exc:
+                logger.warning(
+                    "retention.shutdown_failed",
+                    error_type=type(exc).__name__,
+                )
+
         if rag_service is not None:
             try:
                 async with asyncio.timeout(10):
@@ -280,6 +310,22 @@ async def infrastructure_error_handler(
 async def safe_input_error_handler(
     _: Request,
     exc: SafeInputError,
+) -> JSONResponse:
+    return SafeJSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": exc.code,
+                "message": exc.message,
+            }
+        },
+    )
+
+
+@app.exception_handler(PublicGenerationControlError)
+async def public_generation_error_handler(
+    _: Request,
+    exc: PublicGenerationControlError,
 ) -> JSONResponse:
     return SafeJSONResponse(
         status_code=exc.status_code,

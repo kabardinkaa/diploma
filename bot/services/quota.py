@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections import defaultdict, deque
+from collections import deque
 from datetime import UTC, date, datetime
+
+from app.core.cache import BoundedTTLCache
 
 
 class BotQuotaExceeded(RuntimeError):
@@ -19,19 +21,27 @@ class BotUserQuota:
         requests: int,
         window_seconds: float,
         daily_quota: int,
+        max_users: int = 10_000,
+        state_ttl_seconds: float = 2 * 24 * 60 * 60,
     ) -> None:
         self.requests = requests
         self.window_seconds = window_seconds
         self.daily_quota = daily_quota
-        self._recent: dict[str, deque[float]] = defaultdict(deque)
-        self._daily: dict[str, tuple[date, int]] = {}
+        self._recent = BoundedTTLCache[str, deque[float]](
+            max_entries=max_users,
+            ttl_seconds=state_ttl_seconds,
+        )
+        self._daily = BoundedTTLCache[str, tuple[date, int]](
+            max_entries=max_users,
+            ttl_seconds=state_ttl_seconds,
+        )
         self._lock = asyncio.Lock()
 
     async def check(self, user_id: str) -> None:
         now = time.monotonic()
         today = datetime.now(UTC).date()
         async with self._lock:
-            recent = self._recent[user_id]
+            recent = self._recent.get(user_id, deque())
             cutoff = now - self.window_seconds
             while recent and recent[0] <= cutoff:
                 recent.popleft()
@@ -45,4 +55,5 @@ class BotUserQuota:
                 raise BotQuotaExceeded("bot_daily_quota")
 
             recent.append(now)
+            self._recent[user_id] = recent
             self._daily[user_id] = (quota_day, used + 1)

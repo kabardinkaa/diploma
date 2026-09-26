@@ -43,6 +43,11 @@ def _public_settings(**overrides) -> Settings:
         "ADMIN_TOKEN": "real-admin-secret",
         "INTERNAL_TOKEN": "real-internal-secret",
         "PUBLIC_SESSION_SECRET": "a-real-public-session-secret-with-32-chars",
+        "PUBLIC_GENERATION_BUDGET_REQUESTS": 100,
+        "PUBLIC_DATA_RETENTION_DAYS": 30,
+        "TRACING_CAPTURE_CONTENT": False,
+        "LOG_PROMPT_PREVIEW_ENABLED": False,
+        "CORS_ORIGINS": ["https://demo.example.com"],
         "QDRANT_API_KEY": "real-qdrant-secret",
         "llm": LLMSettings(
             _env_file=None,
@@ -155,6 +160,31 @@ def test_production_preflight_rejects_placeholder_database_password() -> None:
 
     with pytest.raises(ValueError, match="POSTGRES_PASSWORD"):
         validate_values(values)
+
+
+def test_production_preflight_parses_json_cors_allowlist() -> None:
+    values = {
+        "PUBLIC_DOMAIN": "demo.example.com",
+        "PUBLIC_PROXY_SUBNET": "172.31.250.0/24",
+        "PUBLIC_PROXY_IP": "172.31.250.10",
+        "TRUSTED_PROXY_CIDRS": "172.31.250.10/32",
+        "PUBLIC_SESSION_SECRET": "public-session-secret-with-at-least-32-chars",
+        "ADMIN_TOKEN": "real-admin-secret",
+        "INTERNAL_TOKEN": "real-internal-secret",
+        "POSTGRES_PASSWORD": "real-database-password",
+        "DATABASE_URL": "postgresql://postgres:secret@postgres:5432/diploma",
+        "QDRANT_API_KEY": "real-qdrant-secret",
+        "OPENROUTER_API_KEY": "real-provider-secret",
+        "CORS_ORIGINS": '["https://demo.example.com"]',
+        "PUBLIC_GENERATION_BUDGET_REQUESTS": "100",
+        "PUBLIC_DATA_RETENTION_DAYS": "30",
+        "TRACING_CAPTURE_CONTENT": "false",
+        "LOG_PROMPT_PREVIEW_ENABLED": "false",
+    }
+
+    settings = validate_values(values)
+
+    assert settings.cors_origins == ["https://demo.example.com"]
 
 
 class _ComposeLoader(yaml.SafeLoader):

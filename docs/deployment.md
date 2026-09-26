@@ -33,7 +33,7 @@ proxy IP/subnet отклоняются. `.env.production`
 Проверка до запуска не печатает секреты:
 
 ```powershell
-python scripts/validate_production_config.py --env-file .env.production
+python -m scripts.validate_production_config --env-file .env.production
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production config --quiet
 ```
 
@@ -120,7 +120,63 @@ Public persistent-agent не использует IP как owner identity. Пр
 одновременно согласуйте все три значения. Не используйте `0.0.0.0/0` или
 `::/0`.
 
-## 5. Persistent data
+## 5. Public generation budget, CORS and privacy
+
+Public generation routes `/chat`, `/chat/stream`, `/rag/query` and public
+`/agent/stream` share one hard request budget:
+
+```env
+PUBLIC_GENERATION_ENABLED=true
+PUBLIC_GENERATION_BUDGET_REQUESTS=100
+PUBLIC_GENERATION_BUDGET_WINDOW_SECONDS=86400
+```
+
+One accepted public request consumes one unit before provider execution. Web
+generation and Telegram end-user text/media generation share the budget. Health,
+OpenAPI, admin batch and non-generation internal/admin routes do not consume it.
+Exhaustion returns structured `429 public_quota_exhausted`; setting
+`PUBLIC_GENERATION_ENABLED=false` returns `503 public_generation_disabled`
+without calling the provider. Streaming routes send the same safe code as an
+SSE `error` event followed by `done`.
+
+The counter is intentionally process-local for this single-replica diploma
+deployment. It resets on app restart and each replica would have its own
+counter. A multi-replica or strict billing deployment must replace it with a
+shared atomic store such as Redis or a database-backed quota.
+
+Production `CORS_ORIGINS` is a JSON list of explicit HTTPS origins. Wildcards,
+plain HTTP, localhost, credentials in URLs, paths, queries and fragments are
+rejected during startup. Development keeps the permissive wildcard default.
+
+Public persisted chat/message/feedback/broadcast state and PostgreSQL agent
+checkpoint threads are cleaned using:
+
+```env
+PUBLIC_DATA_RETENTION_DAYS=30
+RETENTION_CLEANUP_INTERVAL_SECONDS=3600
+```
+
+Cleanup is serialized with active chat and agent streams, so their state is not
+removed mid-request. System prompts and RAG corpus/evidence are not part of this
+cleanup. The LLM response cache is already bounded by entry count and TTL;
+Telegram chat-id mappings are bounded by `BOT_CHAT_CACHE_MAX_ENTRIES` and
+`BOT_CHAT_CACHE_TTL_SECONDS`; per-user Telegram quota state is bounded by
+`BOT_QUOTA_MAX_USERS` and `BOT_QUOTA_STATE_TTL_SECONDS`. Docker JSON logs are
+size/file rotated.
+
+Production defaults disable Phoenix export and prompt previews. If tracing is
+enabled deliberately, keep `TRACING_CAPTURE_CONTENT=false`: OpenInference then
+hides inputs, outputs, messages, prompts, choices and embedding text/vectors.
+Phoenix's persistent volume has no automatic age-based cleanup in this project;
+with tracing disabled no new application traces are written, while an operator
+must explicitly prune historical Phoenix data under the deployment's data
+policy. Never delete `phoenix-data` as part of an ordinary restart.
+
+No browser-visible demo token is used. For an open demo it would be a public
+client-side value and would add a second authentication scheme without material
+protection beyond the server-side hard budget, rate limit and concurrency cap.
+
+## 6. Persistent data
 
 Compose использует named volumes:
 
@@ -134,7 +190,7 @@ Compose использует named volumes:
 Production corpus монтируется из `./data`. Embedding weights/cache находятся в
 `./.cache/embeddings` и могут быть повторно загружены/построены.
 
-## 6. Backup
+## 7. Backup
 
 Во время backup не запускайте upload/reindex/ingest. `pg_dump` и Qdrant snapshot
 создаются штатными online-механизмами; текущие volumes не удаляются.
@@ -170,7 +226,7 @@ python scripts/deployment_backup.py backup `
   --dry-run
 ```
 
-## 7. Restore
+## 8. Restore
 
 Restore полностью заменяет состояние Postgres, collection `corporate_rag`, RAG
 docstore и corpus. Наложения архива поверх более нового `data/` нет: содержимое
@@ -257,7 +313,7 @@ docker compose `
 точного временного project name. Volumes текущего project `diploma` в этом
 workflow не используются и не удаляются.
 
-## 8. Dev workflow
+## 9. Dev workflow
 
 Базовый Compose остаётся локальным стендом:
 

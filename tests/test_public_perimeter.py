@@ -125,6 +125,14 @@ def test_public_settings_fail_fast_on_placeholder_tokens() -> None:
         Settings(
             _env_file=None,
             APP_ENV="public",
+            PUBLIC_DOMAIN="demo.example.com",
+            PUBLIC_PROXY_IP="172.31.250.10",
+            TRUSTED_PROXY_CIDRS="172.31.250.10/32",
+            PUBLIC_GENERATION_BUDGET_REQUESTS=100,
+            PUBLIC_DATA_RETENTION_DAYS=30,
+            TRACING_CAPTURE_CONTENT=False,
+            LOG_PROMPT_PREVIEW_ENABLED=False,
+            CORS_ORIGINS=["https://demo.example.com"],
             ADMIN_TOKEN="change-me-admin-token",
             INTERNAL_TOKEN="internal-secret",
         )
@@ -269,3 +277,20 @@ async def test_bot_user_rate_and_daily_quotas() -> None:
     await daily_quota.check("user-2")
     with pytest.raises(BotQuotaExceeded, match="bot_daily_quota"):
         await daily_quota.check("user-2")
+
+
+@pytest.mark.asyncio
+async def test_bot_quota_state_is_bounded() -> None:
+    quota = BotUserQuota(
+        requests=10,
+        window_seconds=60,
+        daily_quota=10,
+        max_users=2,
+        state_ttl_seconds=3600,
+    )
+
+    for user_id in ("user-1", "user-2", "user-3"):
+        await quota.check(user_id)
+
+    assert len(quota._recent) == 2
+    assert len(quota._daily) == 2

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -75,4 +76,12 @@ class ChatRepository(Protocol):
         ...
 
     async def list_active_prompts(self) -> list[SystemPrompt]:
+        ...
+
+    async def cleanup_expired(
+        self,
+        *,
+        before: datetime,
+        protected_chat_ids: set[str],
+    ) -> int:
         ...

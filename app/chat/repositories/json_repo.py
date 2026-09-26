@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+import shutil
 from uuid import UUID
 
 import aiofiles
@@ -398,3 +399,34 @@ class JsonChatRepository:
         ]
 
         return active
+
+    async def cleanup_expired(
+        self,
+        *,
+        before: datetime,
+        protected_chat_ids: set[str],
+    ) -> int:
+        deleted = 0
+        for chat in await self._list_chats():
+            if str(chat.id) in protected_chat_ids:
+                continue
+            messages = await self.list_messages(chat.id, limit=1)
+            latest = messages[-1].created_at if messages else chat.created_at
+            if latest < before:
+                shutil.rmtree(self._chat_dir(chat.id))
+                deleted += 1
+
+        for path, model in (
+            (self._feedback_path(), Feedback),
+            (self._broadcasts_path(), BroadcastTask),
+        ):
+            items = await self._read_jsonl(path)
+            kept = [
+                item
+                for item in items
+                if model.model_validate(item).created_at >= before
+            ]
+            if len(kept) != len(items):
+                await self._rewrite_jsonl(path, kept)
+                deleted += len(items) - len(kept)
+        return deleted

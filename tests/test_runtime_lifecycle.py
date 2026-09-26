@@ -13,6 +13,7 @@ from app import main
 async def test_lifespan_creates_shared_resources_once_and_closes_them(monkeypatch) -> None:
     settings = SimpleNamespace(
         rag_tracing_enabled=False,
+        tracing_capture_content=False,
         llm=SimpleNamespace(
             api_key=SecretStr("test-key"),
             request_timeout=1,
@@ -22,6 +23,11 @@ async def test_lifespan_creates_shared_resources_once_and_closes_them(monkeypatc
         llm_cache_max_entries=4,
         llm_cache_ttl_seconds=30,
         llm_cache_enabled=True,
+        public_generation_enabled=True,
+        public_generation_budget_requests=0,
+        public_generation_budget_window_seconds=24 * 60 * 60,
+        public_data_retention_days=0,
+        retention_cleanup_interval_seconds=60 * 60,
         chat_repository="postgres",
         chat_storage_dir="unused",
     )

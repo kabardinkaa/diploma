@@ -61,7 +61,11 @@ async def main() -> None:
             requests=settings.rate_limit_requests,
             window_seconds=settings.rate_limit_window_seconds,
             daily_quota=settings.daily_quota,
+            max_users=settings.quota_max_users,
+            state_ttl_seconds=settings.quota_state_ttl_seconds,
         ),
+        chat_cache_max_entries=settings.chat_cache_max_entries,
+        chat_cache_ttl_seconds=settings.chat_cache_ttl_seconds,
     )
 
     # aiogram будет прокидывать backend в handlers по имени параметра:

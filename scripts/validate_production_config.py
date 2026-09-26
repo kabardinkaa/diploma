@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from ipaddress import ip_address, ip_network
 from pathlib import Path
@@ -17,6 +18,12 @@ from app.security.tokens import is_usable_secret
 def validate_values(source: Mapping[str, str]) -> Settings:
     values = dict(source)
     values["APP_ENV"] = "public"
+    cors_origins = values.get("CORS_ORIGINS")
+    if isinstance(cors_origins, str):
+        try:
+            values["CORS_ORIGINS"] = json.loads(cors_origins)
+        except json.JSONDecodeError as exc:
+            raise ValueError("CORS_ORIGINS must be a valid JSON list") from exc
     postgres_password = values.get("POSTGRES_PASSWORD")
     if not is_usable_secret(postgres_password):
         raise ValueError(

@@ -3,6 +3,7 @@ from ipaddress import ip_address, ip_network
 from pathlib import Path
 import re
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +24,7 @@ class LLMSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     openai_api_key: SecretStr | None = Field(default=None, alias="OPENAI_API_KEY")
@@ -67,6 +69,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     app_name: str = Field(default="Diploma AI Assistant API", alias="APP_NAME")
@@ -134,6 +137,31 @@ class Settings(BaseSettings):
         default=4,
         ge=1,
         alias="PUBLIC_MAX_CONCURRENT_REQUESTS",
+    )
+    public_generation_enabled: bool = Field(
+        default=True,
+        alias="PUBLIC_GENERATION_ENABLED",
+    )
+    public_generation_budget_requests: int = Field(
+        default=0,
+        ge=0,
+        alias="PUBLIC_GENERATION_BUDGET_REQUESTS",
+    )
+    public_generation_budget_window_seconds: float = Field(
+        default=24 * 60 * 60,
+        gt=0,
+        alias="PUBLIC_GENERATION_BUDGET_WINDOW_SECONDS",
+    )
+    public_data_retention_days: int = Field(
+        default=0,
+        ge=0,
+        le=3650,
+        alias="PUBLIC_DATA_RETENTION_DAYS",
+    )
+    retention_cleanup_interval_seconds: float = Field(
+        default=60 * 60,
+        ge=60,
+        alias="RETENTION_CLEANUP_INTERVAL_SECONDS",
     )
     document_upload_max_bytes: int = Field(
         default=10 * 1024 * 1024,
@@ -290,8 +318,19 @@ class Settings(BaseSettings):
         alias="EVAL_CITATION_THRESHOLD",
     )
     rag_tracing_enabled: bool = Field(default=False, alias="RAG_TRACING_ENABLED")
+    tracing_capture_content: bool = Field(
+        default=True,
+        alias="TRACING_CAPTURE_CONTENT",
+    )
+    log_prompt_preview_enabled: bool = Field(
+        default=True,
+        alias="LOG_PROMPT_PREVIEW_ENABLED",
+    )
 
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["*"],
+        alias="CORS_ORIGINS",
+    )
 
     chat_repository: Literal["json", "postgres"] = Field(
         default="json",
@@ -328,6 +367,48 @@ class Settings(BaseSettings):
         if self.rag_chunk_overlap >= self.rag_chunk_size:
             raise ValueError("RAG_CHUNK_OVERLAP must be smaller than RAG_CHUNK_SIZE")
         if self.environment.lower() in {"prod", "production", "public"}:
+            if (
+                self.public_generation_enabled
+                and self.public_generation_budget_requests <= 0
+            ):
+                raise ValueError(
+                    "PUBLIC_GENERATION_BUDGET_REQUESTS must be positive "
+                    "when public generation is enabled"
+                )
+            if self.public_data_retention_days <= 0:
+                raise ValueError(
+                    "PUBLIC_DATA_RETENTION_DAYS must be positive in public deployment"
+                )
+            if self.tracing_capture_content:
+                raise ValueError(
+                    "TRACING_CAPTURE_CONTENT must be false in public deployment"
+                )
+            if self.log_prompt_preview_enabled:
+                raise ValueError(
+                    "LOG_PROMPT_PREVIEW_ENABLED must be false in public deployment"
+                )
+            if not self.cors_origins:
+                raise ValueError(
+                    "CORS_ORIGINS must contain at least one HTTPS origin"
+                )
+            for origin in self.cors_origins:
+                value = origin.strip()
+                parsed = urlsplit(value)
+                if value == "*":
+                    raise ValueError("CORS_ORIGINS must not contain wildcard origins")
+                if (
+                    parsed.scheme != "https"
+                    or not parsed.hostname
+                    or parsed.username is not None
+                    or parsed.password is not None
+                    or parsed.query
+                    or parsed.fragment
+                    or parsed.path != ""
+                    or parsed.hostname.lower() in {"localhost", "127.0.0.1", "::1"}
+                ):
+                    raise ValueError(
+                        "CORS_ORIGINS must contain only explicit HTTPS origins"
+                    )
             missing = [
                 name
                 for name, value in (

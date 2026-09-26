@@ -31,6 +31,26 @@ class BotSettings(BaseSettings):
         alias="BOT_RATE_LIMIT_WINDOW_SECONDS",
     )
     daily_quota: int = Field(default=100, ge=1, alias="BOT_DAILY_QUOTA")
+    quota_max_users: int = Field(
+        default=10_000,
+        ge=1,
+        alias="BOT_QUOTA_MAX_USERS",
+    )
+    quota_state_ttl_seconds: float = Field(
+        default=2 * 24 * 60 * 60,
+        gt=0,
+        alias="BOT_QUOTA_STATE_TTL_SECONDS",
+    )
+    chat_cache_max_entries: int = Field(
+        default=1000,
+        ge=1,
+        alias="BOT_CHAT_CACHE_MAX_ENTRIES",
+    )
+    chat_cache_ttl_seconds: float = Field(
+        default=24 * 60 * 60,
+        gt=0,
+        alias="BOT_CHAT_CACHE_TTL_SECONDS",
+    )
     photo_max_bytes: int = Field(
         default=2 * 1024 * 1024,
         ge=1,

@@ -6,7 +6,7 @@ services:
   config-check:
     <<: *production-env
     image: diploma-ai-assistant:3.4.0
-    command: ["python", "scripts/validate_production_config.py", "--from-environment"]
+    command: ["python", "-m", "scripts.validate_production_config", "--from-environment"]
     environment:
       APP_ENV: public
       PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in the production env file}
@@ -20,6 +20,15 @@ services:
       QDRANT_API_KEY: ${QDRANT_API_KEY:?Set QDRANT_API_KEY in the production env file}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in the production env file}
+      PUBLIC_GENERATION_ENABLED: ${PUBLIC_GENERATION_ENABLED:-true}
+      PUBLIC_GENERATION_BUDGET_REQUESTS: ${PUBLIC_GENERATION_BUDGET_REQUESTS:?Set PUBLIC_GENERATION_BUDGET_REQUESTS in the production env file}
+      PUBLIC_GENERATION_BUDGET_WINDOW_SECONDS: ${PUBLIC_GENERATION_BUDGET_WINDOW_SECONDS:-86400}
+      PUBLIC_DATA_RETENTION_DAYS: ${PUBLIC_DATA_RETENTION_DAYS:?Set PUBLIC_DATA_RETENTION_DAYS in the production env file}
+      RETENTION_CLEANUP_INTERVAL_SECONDS: ${RETENTION_CLEANUP_INTERVAL_SECONDS:-3600}
+      RAG_TRACING_ENABLED: ${RAG_TRACING_ENABLED:-false}
+      TRACING_CAPTURE_CONTENT: ${TRACING_CAPTURE_CONTENT:-false}
+      LOG_PROMPT_PREVIEW_ENABLED: ${LOG_PROMPT_PREVIEW_ENABLED:-false}
     restart: "no"
     mem_limit: 256m
     cpus: 0.5

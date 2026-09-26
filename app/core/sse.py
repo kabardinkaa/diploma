@@ -11,12 +11,19 @@ from app.core.exceptions import (
     LLMError,
     LLMRateLimitError,
     LLMTimeoutError,
+    PublicGenerationControlError,
 )
 
 
 def public_stream_error(exc: Exception) -> dict[str, str]:
     """Map internal failures to a stable public contract without exception text."""
 
+    if isinstance(exc, PublicGenerationControlError):
+        return {
+            "type": "error",
+            "code": exc.code,
+            "message": exc.message,
+        }
     if isinstance(exc, (LLMRateLimitError, openai.RateLimitError)):
         return {
             "type": "error",

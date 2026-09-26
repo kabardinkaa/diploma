@@ -22,6 +22,26 @@ class LLMAuthError(LLMError):
     message = "Ошибка авторизации у LLM-провайдера"
 
 
+class PublicGenerationControlError(Exception):
+    code = "public_generation_unavailable"
+    message = "Public generation is temporarily unavailable"
+    status_code = 503
+
+    def __init__(self) -> None:
+        super().__init__(self.message)
+
+
+class PublicQuotaExceededError(PublicGenerationControlError):
+    code = "public_quota_exhausted"
+    message = "Public demo generation quota is exhausted"
+    status_code = 429
+
+
+class PublicGenerationDisabledError(PublicGenerationControlError):
+    code = "public_generation_disabled"
+    message = "Public demo generation is disabled"
+
+
 class InfrastructureError(Exception):
     code = "infrastructure_unavailable"
     message = "Обязательная зависимость временно недоступна"

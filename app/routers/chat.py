@@ -11,8 +11,18 @@ from app.core.sse import sse_error_events
 from app.deps.providers import SettingsDep
 from app.deps.providers import LLMServiceDep
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Message
+from app.security.public_budget import (
+    PublicGenerationBudget,
+    get_public_generation_budget,
+)
+from typing import Annotated
+from fastapi import Depends
 
 router = APIRouter(tags=["chat"])
+PublicBudgetDep = Annotated[
+    PublicGenerationBudget,
+    Depends(get_public_generation_budget),
+]
 
 
 class BatchChatRequest(BaseModel):
@@ -49,6 +59,7 @@ async def chat(
     request: Request,
     service: LLMServiceDep,
     settings: SettingsDep,
+    budget: PublicBudgetDep,
 ) -> ChatResponse:
     content_type = request.headers.get("content-type", "")
 
@@ -71,6 +82,7 @@ async def chat(
         except ValidationError as exc:
             raise RequestValidationError(exc.errors()) from exc
 
+    await budget.consume()
     return await service.complete(_apply_server_limits(chat_request, settings))
 
 
@@ -89,11 +101,13 @@ async def chat_stream(
     request: ChatRequest,
     service: LLMServiceDep,
     settings: SettingsDep,
+    budget: PublicBudgetDep,
 ) -> StreamingResponse:
     request = _apply_server_limits(request, settings)
 
     async def event_generator():
         try:
+            await budget.consume()
             async for delta in service.stream(request):
                 if delta.content is not None:
                     yield f"data: {delta.content}\n\n"

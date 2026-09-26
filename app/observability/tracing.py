@@ -15,6 +15,7 @@ def setup_tracing(
     project_name: str = "diploma-fastapi",
     *,
     enabled: bool | None = None,
+    capture_content: bool = True,
 ) -> Any | None:
     """Configure OpenAI and LlamaIndex on one Phoenix tracer provider."""
     global _tracer_provider, _tracing_initialized
@@ -35,6 +36,7 @@ def setup_tracing(
             LlamaIndexInstrumentor,
         )
         from openinference.instrumentation.openai import OpenAIInstrumentor
+        from openinference.instrumentation import TraceConfig
         from phoenix.otel import register
     except ImportError:
         logger.warning("tracing.optional_dependency_missing")
@@ -47,9 +49,28 @@ def setup_tracing(
     )
     _tracer_provider = tracer_provider
     _tracing_initialized = True
+    trace_config = TraceConfig(
+        hide_inputs=not capture_content,
+        hide_outputs=not capture_content,
+        hide_input_messages=not capture_content,
+        hide_output_messages=not capture_content,
+        hide_input_images=not capture_content,
+        hide_input_text=not capture_content,
+        hide_output_text=not capture_content,
+        hide_embeddings_vectors=not capture_content,
+        hide_embeddings_text=not capture_content,
+        hide_prompts=not capture_content,
+        hide_choices=not capture_content,
+    )
     try:
-        OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
-        LlamaIndexInstrumentor().instrument(tracer_provider=tracer_provider)
+        OpenAIInstrumentor().instrument(
+            tracer_provider=tracer_provider,
+            config=trace_config,
+        )
+        LlamaIndexInstrumentor().instrument(
+            tracer_provider=tracer_provider,
+            config=trace_config,
+        )
     except Exception:
         logger.exception("tracing.instrumentation_failed")
     return tracer_provider
